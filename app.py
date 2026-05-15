@@ -234,14 +234,16 @@ def build_excel(docs):
     # summary row
     sr = 4 + len(docs)
     ff_t = foam_calc(tot_f); cf_t = canvas_calc(tot_c)
-    sv = ['รวมทั้งหมด','','',
-          f'{tot_c} คู่ / {cf_t["lang"]} ลัง' if tot_c else '-',
-          f'{tot_f} คู่ / {ff_t["doz"]} โหล\n{ff_t["txt"]}' if tot_f else '-',
-          f'{tot_g} คู่' if tot_g else '-',
-          tot_c+tot_f+tot_g]
     ws.merge_cells(f'A{sr}:C{sr}')
-    for col, val in enumerate(sv, 1):
-        c = ws.cell(row=sr, column=col, value=val)
+    sum_data = {1: 'รวมทั้งหมด',
+                4: f'{tot_c} คู่ / {cf_t["lang"]} ลัง' if tot_c else '-',
+                5: f'{tot_f} คู่ / {ff_t["doz"]} โหล / {ff_t["txt"]}' if tot_f else '-',
+                6: f'{tot_g} คู่' if tot_g else '-',
+                7: tot_c+tot_f+tot_g}
+    for col in range(1, 8):
+        c = ws.cell(row=sr, column=col)
+        if col in sum_data:
+            c.value = sum_data[col]
         c.font = hf(10); c.fill = fl(BLUE)
         c.alignment = al('center'); c.border = bdr
     ws.row_dimensions[sr].height = 36

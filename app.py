@@ -114,16 +114,32 @@ def parse_pdf(file_bytes):
         if y > 2500: y -= 543
         result['date'] = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
 
-    # customer
+    # customer — ดึงชื่อลูกค้าจาก PDF โดยหาจาก keyword แล้วดึงเฉพาะชื่อ
     lines = [l.strip() for l in text.split('\n') if l.strip()]
-    for line in lines[:40]:
-        if any(k in line for k in ['ร้าน','น.ส.','นาย','นาง','หจก','บจก','ห้าง']):
-            result['customer'] = line.strip()
+
+    # วิธีที่ 1: หาบรรทัดที่มี keyword ชื่อคน/ร้าน แล้วดึงเฉพาะส่วนชื่อ
+    cust_keywords = ['ร้าน','น.ส.','นาย','นาง','หจก','บจก','ห้าง','บริษัท']
+    for line in lines[:50]:
+        for kw in cust_keywords:
+            if kw in line:
+                # ตัดข้อมูลที่ไม่เกี่ยวออก เช่น วันที่ เลขที่
+                clean = re.sub(r'ชื่อ.*?:|รหัส.*?:|วันที่.*?:|เลขที่.*?:', '', line)
+                clean = re.sub(r'\d{2}/\d{2}/\d{4}|\d{4}-\d{2}-\d{2}', '', clean)
+                clean = clean.strip()
+                if len(clean) > 2:
+                    result['customer'] = clean
+                    break
+        if result['customer']:
             break
+
+    # วิธีที่ 2: fallback หาชื่อสั้นๆ ภาษาไทยล้วน ไม่มีตัวเลข
     if not result['customer']:
-        # fallback: look for name-like short Thai text
-        for line in lines[:20]:
-            if re.match(r'^[ก-๙\s\.\/\(\)]{4,30}$', line) and 'IFO' not in line and 'บริษัท' not in line and len(line) > 3:
+        for line in lines[:30]:
+            if (re.match(r'^[ก-๙\s\.\(\)/]{3,25}$', line)
+                    and 'IFO' not in line
+                    and 'บริษัท' not in line
+                    and 'นันยาง' not in line
+                    and not re.search(r'\d', line)):
                 result['customer'] = line
                 break
 
@@ -184,26 +200,48 @@ def build_excel(docs):
     # ── Sheet 1: สรุป ──
     ws = wb.active
     ws.title = 'สรุปโหลดสินค้า'
-    ws.merge_cells('A1:G1')
+    # col layout: A=วันที่ B=เลขที่ C=ลูกค้า D=ผ้าใบ(คู่) E=ผ้าใบ(ลัง) F=ฟองน้ำ(คู่) G=ฟองน้ำ(โหล) H=ฟองน้ำ(กระสอบ) I=ของแถม(คู่) J=รวม
+    NCOLS = 10
+    ws.merge_cells('A1:J1')
     ws['A1'] = 'สรุปโหลดสินค้า — บริษัท นันยางมาร์เก็ตติ้ง จำกัด'
     ws['A1'].font = hf(14); ws['A1'].fill = fl(BLUE)
     ws['A1'].alignment = al('center'); ws.row_dimensions[1].height = 28
 
-    ws.merge_cells('A2:G2')
+    ws.merge_cells('A2:J2')
     ws['A2'] = f'พิมพ์: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
     ws['A2'].font = nf(); ws['A2'].alignment = al('right')
     ws.row_dimensions[2].height = 16
 
-    hdrs = ['วันที่','เลขที่เอกสาร','ชื่อลูกค้า','ผ้าใบ (คู่/ลัง)','ฟองน้ำ (คู่/โหล/กระสอบ)','ของแถม (คู่/ลัง)','รวม (คู่)']
-    for col, h in enumerate(hdrs, 1):
-        c = ws.cell(row=3, column=col, value=h)
-        c.font = hf(10); c.fill = fl(BLUE)
+    # Row 3: group headers
+    ws.merge_cells('A3:C3')
+    ws.merge_cells('D3:E3')
+    ws.merge_cells('F3:H3')
+    ws.merge_cells('I3:I3')
+    ws.merge_cells('J3:J3')
+    grp_hdrs = {1:'', 4:'ผ้าใบ', 6:'ฟองน้ำ', 9:'ของแถม', 10:'รวม (คู่)'}
+    grp_fills = {1:BLUE, 4:'2D6A27', 6:'1E3A8A', 9:'78350F', 10:BLUE}
+    for col in range(1, NCOLS+1):
+        c = ws.cell(row=3, column=col)
+        for k in sorted(grp_hdrs.keys(), reverse=True):
+            if col >= k:
+                c.value = grp_hdrs[k] if col == k else ''
+                c.fill = fl(grp_fills[k])
+                break
+        c.font = hf(11); c.alignment = al('center'); c.border = bdr
+    ws.row_dimensions[3].height = 20
+
+    # Row 4: sub headers
+    sub_hdrs = ['วันที่','เลขที่เอกสาร','ชื่อลูกค้า','คู่','ลัง','คู่','โหล','กระสอบ','คู่','รวม (คู่)']
+    sub_fills = [BLUE,BLUE,BLUE,'2D6A27','2D6A27','1E3A8A','1E3A8A','1E3A8A','78350F',BLUE]
+    for col, (h, bg) in enumerate(zip(sub_hdrs, sub_fills), 1):
+        c = ws.cell(row=4, column=col, value=h)
+        c.font = hf(10); c.fill = fl(bg)
         c.alignment = al('center'); c.border = bdr
-    ws.row_dimensions[3].height = 22
+    ws.row_dimensions[4].height = 20
 
     tot_c = tot_f = tot_g = 0
     for i, doc in enumerate(docs):
-        r = 4 + i
+        r = 5 + i
         ci = [x for x in doc['items'] if x['type']=='canvas']
         fi = [x for x in doc['items'] if x['type']=='foam']
         gi = [x for x in doc['items'] if x['type']=='gift']
@@ -213,42 +251,48 @@ def build_excel(docs):
         cf_ = canvas_calc(ct); ff_ = foam_calc(ft); gf_ = canvas_calc(gt)
         tot_c += ct; tot_f += ft; tot_g += gt
 
-        canvas_txt = f'{ct} คู่ / {cf_["lang"]} ลัง' + (f'\nเศษ {cf_["rem"]} คู่' if cf_['rem'] else '') if ct else '-'
-        foam_txt   = f'{ft} คู่ / {ff_["doz"]} โหล\n{ff_["txt"]}' if ft else '-'
-        gift_txt   = f'{gt} คู่ / {gf_["lang"]} ลัง' if gt else '-'
+        rem_txt = f'เศษ {cf_["rem"]} คู่' if cf_['rem'] else ''
+        sack_txt = ff_['txt'] if ft else '-'
 
         bg = 'F7FAFB' if i % 2 == 0 else 'FFFFFF'
-        vals = [format_th_date(doc['date']), doc['docId'], doc['customer'],
-                canvas_txt, foam_txt, gift_txt, ct+ft+gt]
-        bgs  = [bg, bg, bg,
-                CANVAS_BG if ct else bg,
-                FOAM_BG   if ft else bg,
-                GIFT_BG   if gt else bg, SUM_BG]
-        for col, (val, bg2) in enumerate(zip(vals, bgs), 1):
+        row_vals = [
+            format_th_date(doc['date']), doc['docId'], doc['customer'],
+            ct if ct else '-', f'{cf_["lang"]} ลัง' + (f' ({rem_txt})' if rem_txt else '') if ct else '-',
+            ft if ft else '-', f'{ff_["doz"]} โหล' if ft else '-', sack_txt,
+            gt if gt else '-',
+            ct+ft+gt
+        ]
+        row_bgs = [bg,bg,bg, CANVAS_BG,CANVAS_BG, FOAM_BG,FOAM_BG,FOAM_BG, GIFT_BG if gt else bg, SUM_BG]
+        for col, (val, bg2) in enumerate(zip(row_vals, row_bgs), 1):
             c = ws.cell(row=r, column=col, value=val)
-            c.fill = fl(bg2); c.font = nf(bold=(col==7))
+            c.fill = fl(bg2); c.font = nf(bold=(col==10))
             c.alignment = al('left') if col <= 3 else al('center')
             c.border = bdr
-        ws.row_dimensions[r].height = 36
+        ws.row_dimensions[r].height = 28
 
     # summary row
-    sr = 4 + len(docs)
+    sr = 5 + len(docs)
     ff_t = foam_calc(tot_f); cf_t = canvas_calc(tot_c)
     ws.merge_cells(f'A{sr}:C{sr}')
-    sum_data = {1: 'รวมทั้งหมด',
-                4: f'{tot_c} คู่ / {cf_t["lang"]} ลัง' if tot_c else '-',
-                5: f'{tot_f} คู่ / {ff_t["doz"]} โหล / {ff_t["txt"]}' if tot_f else '-',
-                6: f'{tot_g} คู่' if tot_g else '-',
-                7: tot_c+tot_f+tot_g}
-    for col in range(1, 8):
+    sum_data = {
+        1: 'รวมทั้งหมด',
+        4: tot_c if tot_c else '-',
+        5: f'{cf_t["lang"]} ลัง',
+        6: tot_f if tot_f else '-',
+        7: f'{ff_t["doz"]} โหล',
+        8: ff_t["txt"] if tot_f else '-',
+        9: tot_g if tot_g else '-',
+        10: tot_c+tot_f+tot_g
+    }
+    for col in range(1, NCOLS+1):
         c = ws.cell(row=sr, column=col)
         if col in sum_data:
             c.value = sum_data[col]
         c.font = hf(10); c.fill = fl(BLUE)
         c.alignment = al('center'); c.border = bdr
-    ws.row_dimensions[sr].height = 36
+    ws.row_dimensions[sr].height = 28
 
-    for col, w in enumerate([14,16,28,24,32,20,14], 1):
+    for col, w in enumerate([12,16,26,10,14,10,12,26,10,12], 1):
         ws.column_dimensions[get_column_letter(col)].width = w
 
     # ── Sheet 2: รายละเอียด ──

@@ -100,6 +100,35 @@ def clean_cid(s):
     s = re.sub(r'\s+', ' ', s).strip()
     return s
 
+def normalize_thai(s):
+    """แก้ตัวอักษรไทยที่ถูก PDF ทำให้เพี้ยน เช่น วรรณยุกต์/สระหลุด"""
+    # ชื่อที่รู้อยู่แล้ว
+    fixes = [
+        (r'พรพมิ\s*ล', 'พรพิมล'),
+        (r'วาสนา\s*จางนะ', 'วาสนา จางนะ'),
+        (r'รา้น\s*จอมแจง้', 'ร้านจอมแจ้ง'),
+        (r'บารเ์บอร์?\)?', 'บาร์เบอร์)'),
+        (r'พศิ\s*ษิ\s*ฐ์?', 'พิษฐ์'),
+        (r'รา้น', 'ร้าน'),
+        (r'นา้\s*ตาล', 'น้ำตาล'),
+        (r'นา้\s*เงนิ', 'น้ำเงิน'),
+        (r'ฟองนา้\s*', 'ฟองน้ำ '),
+        (r'ฟองนํา', 'ฟองน้ำ'),
+        (r'ผา้\s*ใบ', 'ผ้าใบ'),
+        (r'สดี า้\s*', 'สีดำ '),
+        (r'สดี า', 'สีดำ'),
+        (r'ดา้\s*', 'ดำ '),
+        (r'นา้\s*', 'น้ำ'),
+        (r'หนา้\s*ขาว', 'หน้าขาว'),
+        (r'ลว้น', 'ล้วน'),
+        (r'เขม้', 'เข้ม'),
+        (r'ออ่น', 'อ่อน'),
+        (r'\s+', ' '),
+    ]
+    for pattern, replacement in fixes:
+        s = re.sub(pattern, replacement, s)
+    return s.strip()
+
 def extract_lines(file_bytes):
     """ใช้ extract_words จัดกลุ่มตาม y-position เพื่อให้ได้บรรทัดที่ถูกต้อง"""
     lines = []
@@ -140,7 +169,7 @@ def parse_pdf(file_bytes):
         if m:
             name = m.group(1).strip()
             if len(name) > 1:
-                result['customer'] = name
+                result['customer'] = normalize_thai(name)
                 break
 
     # items
@@ -151,7 +180,7 @@ def parse_pdf(file_bytes):
             barcode, desc, qty = m.group(1), m.group(2).strip(), int(m.group(3))
             if qty > 0:
                 t = detect_type(barcode, desc)
-                desc_clean = re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$', '', desc).strip()
+                desc_clean = normalize_thai(re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$', '', desc).strip())
                 result['items'].append({'desc': desc_clean, 'type': t, 'qty': qty})
     return result, text
 

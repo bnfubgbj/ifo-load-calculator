@@ -116,47 +116,18 @@ def parse_pdf(file_bytes):
 
     lines = [l.strip() for l in text.split('\n') if l.strip()]
 
-    # customer — หาจาก address บรรทัดแรกของ PDF (ก่อนบรรทัดที่มี บริษัท นันยาง)
-    # PDF layout: บรรทัดแรก = ที่อยู่ลูกค้า, ถัดไป = ที่อยู่บริษัท
-    # ลูกค้า IFO-031337: พรพิมล, IFO-031338: น.ส.วาสนา, IFO-031339: ร้านพิษฐิ
-
-    # วิธีที่ 1: หาจาก "ชื่อลูกค้า :" หรือบรรทัดที่อยู่ต้นๆ ก่อน 99-105 ถนน
-    nanyang_line = -1
-    for i, line in enumerate(lines[:30]):
-        if '99-105' in line or 'สีพระยา' in line or 'นันยางมาร์' in line:
-            nanyang_line = i
-            break
-
-    if nanyang_line > 0:
-        # ดึงบรรทัดก่อน nanyang — น่าจะเป็นที่อยู่/ชื่อลูกค้า
-        addr_line = lines[0] if nanyang_line >= 1 else ''
-        # ตัดเอาเฉพาะส่วนชื่อ/ร้าน ตัดเลขที่อยู่และเบอร์โทรออก
-        clean = re.sub(r'\d{1,4}/\d+|หมู่ที่?\s*\d+|ถ\..*|ต\..*|อ\..*|จ\..*|โทร.*|\d{9,}', '', addr_line)
-        clean = clean.strip().strip(',').strip()
-        if len(clean) > 2:
-            result['customer'] = clean
-
-    # วิธีที่ 2: หาบรรทัดที่มี keyword ชื่อคน/ร้าน
-    if not result['customer']:
-        cust_keywords = ['ร้าน','น.ส.','นาย','นาง','หจก','บจก','ห้าง']
-        for line in lines[:30]:
-            for kw in cust_keywords:
-                if kw in line and 'นันยาง' not in line:
-                    clean = re.sub(r'\d{1,4}/\d+|หมู่.*|ถ\..*|โทร.*|\d{9,}', '', line)
-                    clean = clean.strip()
-                    if len(clean) > 2:
-                        result['customer'] = clean
-                        break
-            if result['customer']:
-                break
-
-    # วิธีที่ 3: fallback ชื่อสั้นภาษาไทย
-    if not result['customer']:
-        for line in lines[:20]:
-            if (re.match(r'^[ก-๙\s]{3,20}$', line)
-                    and 'บริษัท' not in line and 'นันยาง' not in line
-                    and not re.search(r'\d', line)):
-                result['customer'] = line
+    # customer — ดึงจากบรรทัดที่มี "ชื่อลูกค้า" หรือ "ชอื...ลกู...คา"
+    for line in lines[:15]:
+        # ลบ cid artifacts ก่อน
+        clean_line = re.sub(r'\(cid:\d+\)', '', line)
+        clean_line = re.sub(r'\s+', ' ', clean_line).strip()
+        # หา pattern ชื่อลูกค้า : <ชื่อ>
+        m = re.search(r'ชื่?อ\s*ลู?กค้?า\s*:\s*(.+?)(?:\s+วัน\s*ที่|\s+วัน\s*ท|$)', clean_line)
+        if m:
+            name = m.group(1).strip()
+            name = re.sub(r'\s+', ' ', name).strip()
+            if len(name) > 1:
+                result['customer'] = name
                 break
 
     # items
@@ -217,21 +188,21 @@ def build_excel(docs):
     ws = wb.active
     ws.title = 'สรุปโหลดสินค้า'
     # col layout: A=วันที่ B=เลขที่ C=ลูกค้า D=ผ้าใบ(คู่) E=ผ้าใบ(ลัง) F=ฟองน้ำ(คู่) G=ฟองน้ำ(โหล) H=ฟองน้ำ(กระสอบ) I=ของแถม(คู่) J=รวม
-    NCOLS = 10
-    ws.merge_cells('A1:J1')
+    NCOLS = 11
+    ws.merge_cells('A1:K1')
     ws['A1'] = 'สรุปโหลดสินค้า — บริษัท นันยางมาร์เก็ตติ้ง จำกัด'
     ws['A1'].font = hf(14); ws['A1'].fill = fl(BLUE)
     ws['A1'].alignment = al('center'); ws.row_dimensions[1].height = 28
 
-    ws.merge_cells('A2:J2')
+    ws.merge_cells('A2:K2')
     ws['A2'] = f'พิมพ์: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
     ws['A2'].font = nf(); ws['A2'].alignment = al('right')
     ws.row_dimensions[2].height = 16
 
     # Row 3: group headers — เขียนค่าใน cell แรกของแต่ละกลุ่ม แล้วค่อย merge
-    grp_hdrs = {1:'', 4:'ผ้าใบ', 6:'ฟองน้ำ', 9:'ของแถม', 10:'รวม (คู่)'}
-    grp_fills = {1:BLUE, 4:'2D6A27', 6:'1E3A8A', 9:'78350F', 10:BLUE}
-    grp_range = {1:(1,3), 4:(4,5), 6:(6,8), 9:(9,9), 10:(10,10)}
+    grp_hdrs = {1:'', 4:'ผ้าใบ', 6:'ฟองน้ำ', 10:'ของแถม', 11:'รวม (คู่)'}
+    grp_fills = {1:BLUE, 4:'2D6A27', 6:'1E3A8A', 10:'78350F', 11:BLUE}
+    grp_range = {1:(1,3), 4:(4,5), 6:(6,9), 10:(10,10), 11:(11,11)}
 
     for start_col, (sc, ec) in grp_range.items():
         # เขียนค่าใน cell แรกก่อน merge
@@ -248,8 +219,8 @@ def build_excel(docs):
     ws.row_dimensions[3].height = 20
 
     # Row 4: sub headers
-    sub_hdrs = ['วันที่','เลขที่เอกสาร','ชื่อลูกค้า','คู่','ลัง (12คู่)','คู่','โหล','กระสอบใหญ่ (10โหล)','คู่','รวม (คู่)']
-    sub_fills = [BLUE,BLUE,BLUE,'2D6A27','2D6A27','1E3A8A','1E3A8A','1E3A8A','78350F',BLUE]
+    sub_hdrs = ['วันที่','เลขที่เอกสาร','ชื่อลูกค้า','คู่','ลัง (12คู่)','คู่','โหล','กระสอบใหญ่ (10โหล)','เศษ(โหล)','คู่','รวม (คู่)']
+    sub_fills = [BLUE,BLUE,BLUE,'2D6A27','2D6A27','1E3A8A','1E3A8A','1E3A8A','1E3A8A','78350F',BLUE]
     for col, (h, bg) in enumerate(zip(sub_hdrs, sub_fills), 1):
         c = ws.cell(row=4, column=col, value=h)
         c.font = hf(10); c.fill = fl(bg)
@@ -273,10 +244,11 @@ def build_excel(docs):
             format_th_date(doc['date']), doc['docId'], doc['customer'],
             ct if ct else '-', cf_['lang'] if ct else '-',
             ft if ft else '-', ff_['doz'] if ft else '-', ff_['big'] if ft else '-',
+            ff_['sm'] if ft else '-',
             gt if gt else '-',
             ct+ft+gt
         ]
-        row_bgs = [bg,bg,bg, CANVAS_BG,CANVAS_BG, FOAM_BG,FOAM_BG,FOAM_BG, GIFT_BG if gt else bg, SUM_BG]
+        row_bgs = [bg,bg,bg, CANVAS_BG,CANVAS_BG, FOAM_BG,FOAM_BG,FOAM_BG,FOAM_BG, GIFT_BG if gt else bg, SUM_BG]
         for col, (val, bg2) in enumerate(zip(row_vals, row_bgs), 1):
             c = ws.cell(row=r, column=col, value=val)
             c.fill = fl(bg2); c.font = nf(bold=(col==10))
@@ -287,7 +259,7 @@ def build_excel(docs):
     # summary row
     sr = 5 + len(docs)
     ff_t = foam_calc(tot_f); cf_t = canvas_calc(tot_c)
-    ws.merge_cells(f'A{sr}:C{sr}')
+    ws.merge_cells(start_row=sr, start_column=1, end_row=sr, end_column=3)
     sum_data = {
         1: 'รวมทั้งหมด',
         4: tot_c if tot_c else '-',
@@ -295,8 +267,9 @@ def build_excel(docs):
         6: tot_f if tot_f else '-',
         7: ff_t['doz'] if tot_f else '-',
         8: ff_t['big'] if tot_f else '-',
-        9: tot_g if tot_g else '-',
-        10: tot_c+tot_f+tot_g
+        9: ff_t['sm'] if tot_f else '-',
+        10: tot_g if tot_g else '-',
+        11: tot_c+tot_f+tot_g
     }
     for col in range(1, NCOLS+1):
         c = ws.cell(row=sr, column=col)
@@ -306,7 +279,7 @@ def build_excel(docs):
         c.alignment = al('center'); c.border = bdr
     ws.row_dimensions[sr].height = 28
 
-    for col, w in enumerate([12,16,26,10,14,10,12,26,10,12], 1):
+    for col, w in enumerate([12,16,26,10,14,10,10,20,10,10,12], 1):
         ws.column_dimensions[get_column_letter(col)].width = w
 
     # ── Sheet 2: รายละเอียด ──

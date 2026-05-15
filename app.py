@@ -71,25 +71,38 @@ def extract_lines(file_bytes):
     return lines
 
 def detect_product_type(barcode, desc):
-    """แยกประเภทสินค้าและกลุ่ม"""
-    txt = barcode + desc
-    # ผ้าใบ
-    if re.search(r'ผ้าใบ|205[SR]|121Z|zafari|ซาฟารี', txt, re.I): return 'canvas'
-    # ฟองน้ำ 212/213
-    if re.search(r'212|213', barcode[:3]): return 'foam212'
-    # ฟองน้ำ 200
-    if re.search(r'ฟองน้ำ|200|212|213', txt): return 'foam200'
+    """แยกประเภทสินค้าจาก barcode prefix"""
+    pre3 = barcode[:3]
+    pre2 = barcode[:2]
+    # ผ้าใบ: 110, 111, 112, 113, 114 (รวม 205S/R, Zafari, 121Z)
+    if pre2 in ('11',):  return 'canvas'
+    if pre3 in ('110','111','112','113','114'): return 'canvas'
+    # ฟองน้ำ 212: 122
+    if pre3 == '122': return 'foam212'
+    # ฟองน้ำ 213: 123
+    if pre3 == '123': return 'foam212'
+    # ฟองน้ำ 200: 120, 121
+    if pre3 in ('120','121'): return 'foam200'
+    # fallback จาก desc
+    d = desc
+    if re.search(r'ผ้าใบ|205[SR]|zafari|ซาฟารี', d, re.I): return 'canvas'
+    if re.search(r'212|213', d): return 'foam212'
+    if re.search(r'ฟองน้ำ|200', d): return 'foam200'
     return 'gift'
 
 def get_product_subtype(barcode, desc):
-    """ดึงชื่อรุ่นสินค้า เช่น 205S, 205R, 200, 212, 213"""
+    """ดึงชื่อรุ่นสินค้า"""
     d = normalize_thai(desc)
-    if '205S' in d or '205S' in barcode: return '205S'
-    if '205R' in d or '205R' in barcode: return '205R'
-    if '121Z' in d or '121Z' in barcode or re.search(r'zafari|ซาฟารี',d,re.I): return 'Zafari'
-    if re.search(r'213', barcode[:3]): return '213'
-    if re.search(r'212', barcode[:3]): return '212'
-    if '200' in d: return '200'
+    pre3 = barcode[:3]
+    if '205S' in d: return '205S'
+    if '205R' in d: return '205R'
+    if re.search(r'zafari|ซาฟารี|121Z', d, re.I): return 'Zafari'
+    if pre3 == '123' or '213' in d: return '213'
+    if pre3 == '122' or '212' in d: return '212'
+    if pre3 in ('120','121') or '200' in d: return '200'
+    # ผ้าใบอื่น
+    m = re.search(r'(\d{3}[SR]?)', d)
+    if m: return m.group(1)
     return d.split()[0] if d else 'อื่นๆ'
 
 def is_gift(barcode, desc, price_str=''):

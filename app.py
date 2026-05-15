@@ -146,7 +146,7 @@ def extract_lines(file_bytes):
     return lines
 
 def parse_pdf(file_bytes):
-    result = {'docId':'', 'date':'', 'customer':'', 'items':[]}
+    result = {'docId':'', 'date':'', 'customer':'', 'province':'', 'amphoe':'', 'items':[]}
     lines = extract_lines(file_bytes)
     text = '\n'.join(lines)
 
@@ -162,15 +162,27 @@ def parse_pdf(file_bytes):
         if y > 2500: y -= 543
         result['date'] = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
 
-    # customer — บรรทัด "ชอื ลกู คา้ : <ชื่อ>" หรือ "ชื่อลูกค้า : <ชื่อ>"
+    # customer
     for line in lines[:20]:
-        # match ทั้ง "ชอื ลกู คา้" และ "ชื่อลูกค้า"
         m = re.search(r'ช[อื]{1,2}\s*ล[กู]{1,2}\s*ค[า้]{1,2}\s*:\s*(.+?)(?:\s+ว[นั]{1,2}\s*ท|$)', line)
         if m:
             name = m.group(1).strip()
             if len(name) > 1:
                 result['customer'] = normalize_thai(name)
                 break
+
+    # province & amphoe — หาจากบรรทัดที่อยู่ลูกค้า (มี จ. และ อ.)
+    for line in lines[:15]:
+        mp = re.search(r'จ\.([^\d\s]+(?:\s+[^\d\s]+)?)', line)
+        ma = re.search(r'อ\.([^\d\s.]+(?:\s+[^\d\s.]+)?)', line)
+        if mp:
+            prov = re.sub(r'\d+.*', '', mp.group(1)).strip()
+            result['province'] = normalize_thai(prov)
+        if ma:
+            amp = re.sub(r'\d+.*', '', ma.group(1)).strip()
+            result['amphoe'] = normalize_thai(amp)
+        if result['province']:
+            break
 
     # items
     for line in lines:
@@ -230,21 +242,21 @@ def build_excel(docs):
     ws = wb.active
     ws.title = 'สรุปโหลดสินค้า'
     # col layout: A=วันที่ B=เลขที่ C=ลูกค้า D=ผ้าใบ(คู่) E=ผ้าใบ(ลัง) F=ฟองน้ำ(คู่) G=ฟองน้ำ(โหล) H=ฟองน้ำ(กระสอบ) I=ของแถม(คู่) J=รวม
-    NCOLS = 11
-    ws.merge_cells('A1:K1')
+    NCOLS = 13
+    ws.merge_cells('A1:M1')
     ws['A1'] = 'สรุปโหลดสินค้า — บริษัท นันยางมาร์เก็ตติ้ง จำกัด'
     ws['A1'].font = hf(14); ws['A1'].fill = fl(BLUE)
     ws['A1'].alignment = al('center'); ws.row_dimensions[1].height = 28
 
-    ws.merge_cells('A2:K2')
+    ws.merge_cells('A2:M2')
     ws['A2'] = f'พิมพ์: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
     ws['A2'].font = nf(); ws['A2'].alignment = al('right')
     ws.row_dimensions[2].height = 16
 
     # Row 3: group headers — เขียนค่าใน cell แรกของแต่ละกลุ่ม แล้วค่อย merge
-    grp_hdrs = {1:'', 4:'ผ้าใบ', 6:'ฟองน้ำ', 10:'ของแถม', 11:'รวม (คู่)'}
-    grp_fills = {1:BLUE, 4:'2D6A27', 6:'1E3A8A', 10:'78350F', 11:BLUE}
-    grp_range = {1:(1,3), 4:(4,5), 6:(6,9), 10:(10,10), 11:(11,11)}
+    grp_hdrs = {1:'', 6:'ผ้าใบ', 8:'ฟองน้ำ', 12:'ของแถม', 13:'รวม (คู่)'}
+    grp_fills = {1:BLUE, 6:'2D6A27', 8:'1E3A8A', 12:'78350F', 13:BLUE}
+    grp_range = {1:(1,5), 6:(6,7), 8:(8,11), 12:(12,12), 13:(13,13)}
 
     for start_col, (sc, ec) in grp_range.items():
         # เขียนค่าใน cell แรกก่อน merge
@@ -261,8 +273,8 @@ def build_excel(docs):
     ws.row_dimensions[3].height = 20
 
     # Row 4: sub headers
-    sub_hdrs = ['วันที่','เลขที่เอกสาร','ชื่อลูกค้า','คู่','ลัง (12คู่)','คู่','โหล','กระสอบใหญ่ (10โหล)','เศษ(โหล)','คู่','รวม (คู่)']
-    sub_fills = [BLUE,BLUE,BLUE,'2D6A27','2D6A27','1E3A8A','1E3A8A','1E3A8A','1E3A8A','78350F',BLUE]
+    sub_hdrs = ['วันที่','เลขที่เอกสาร','ชื่อลูกค้า','อำเภอ','จังหวัด','คู่','ลัง (12คู่)','คู่','โหล','กระสอบใหญ่ (10โหล)','เศษ(โหล)','คู่','รวม (คู่)']
+    sub_fills = [BLUE,BLUE,BLUE,BLUE,BLUE,'2D6A27','2D6A27','1E3A8A','1E3A8A','1E3A8A','1E3A8A','78350F',BLUE]
     for col, (h, bg) in enumerate(zip(sub_hdrs, sub_fills), 1):
         c = ws.cell(row=4, column=col, value=h)
         c.font = hf(10); c.fill = fl(bg)
@@ -284,13 +296,14 @@ def build_excel(docs):
         bg = 'F7FAFB' if i % 2 == 0 else 'FFFFFF'
         row_vals = [
             format_th_date(doc['date']), doc['docId'], doc['customer'],
+            doc.get('amphoe',''), doc.get('province',''),
             ct if ct else '-', cf_['lang'] if ct else '-',
             ft if ft else '-', ff_['doz'] if ft else '-', ff_['big'] if ft else '-',
             ff_['sm'] if ft else '-',
             gt if gt else '-',
             ct+ft+gt
         ]
-        row_bgs = [bg,bg,bg, CANVAS_BG,CANVAS_BG, FOAM_BG,FOAM_BG,FOAM_BG,FOAM_BG, GIFT_BG if gt else bg, SUM_BG]
+        row_bgs = [bg,bg,bg,bg,bg, CANVAS_BG,CANVAS_BG, FOAM_BG,FOAM_BG,FOAM_BG,FOAM_BG, GIFT_BG if gt else bg, SUM_BG]
         for col, (val, bg2) in enumerate(zip(row_vals, row_bgs), 1):
             c = ws.cell(row=r, column=col, value=val)
             c.fill = fl(bg2); c.font = nf(bold=(col==10))
@@ -301,17 +314,17 @@ def build_excel(docs):
     # summary row
     sr = 5 + len(docs)
     ff_t = foam_calc(tot_f); cf_t = canvas_calc(tot_c)
-    ws.merge_cells(start_row=sr, start_column=1, end_row=sr, end_column=3)
+    ws.merge_cells(start_row=sr, start_column=1, end_row=sr, end_column=5)
     sum_data = {
         1: 'รวมทั้งหมด',
-        4: tot_c if tot_c else '-',
-        5: cf_t['lang'] if tot_c else '-',
-        6: tot_f if tot_f else '-',
-        7: ff_t['doz'] if tot_f else '-',
-        8: ff_t['big'] if tot_f else '-',
-        9: ff_t['sm'] if tot_f else '-',
-        10: tot_g if tot_g else '-',
-        11: tot_c+tot_f+tot_g
+        6: tot_c if tot_c else '-',
+        7: cf_t['lang'] if tot_c else '-',
+        8: tot_f if tot_f else '-',
+        9: ff_t['doz'] if tot_f else '-',
+        10: ff_t['big'] if tot_f else '-',
+        11: ff_t['sm'] if tot_f else '-',
+        12: tot_g if tot_g else '-',
+        13: tot_c+tot_f+tot_g
     }
     for col in range(1, NCOLS+1):
         c = ws.cell(row=sr, column=col)
@@ -321,7 +334,7 @@ def build_excel(docs):
         c.alignment = al('center'); c.border = bdr
     ws.row_dimensions[sr].height = 28
 
-    for col, w in enumerate([12,16,26,10,14,10,10,20,10,10,12], 1):
+    for col, w in enumerate([12,14,24,12,14,10,12,10,10,18,10,10,12], 1):
         ws.column_dimensions[get_column_letter(col)].width = w
 
     # ── Sheet 2: รายละเอียด ──

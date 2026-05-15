@@ -583,20 +583,38 @@ if uploaded_files:
 
         # grand summary
         tot_all = sum(d['_ct']+d['_ft2']+d['_ft3']+d['_gct']+d['_gft2']+d['_gft3'] for d in docs)
-        col1,col2,col3,col4 = st.columns(4)
-        col1.metric("📄 เอกสาร", f"{len(docs)} IFO")
 
-        # รวมผ้าใบแยกตามรุ่น
+        # รวมแยกตามรุ่น
         from collections import defaultdict
         canvas_by_sub = defaultdict(int)
+        foam212_qty = 0; foam213_qty = 0
         for d in docs:
             for item in d['items']:
                 if item['type'] == 'canvas':
                     canvas_by_sub[item['subtype']] += item['qty']
-        canvas_summary = ' | '.join(f"{k} {v} คู่" for k,v in sorted(canvas_by_sub.items()))
-        col2.metric("🟢 ผ้าใบ", canvas_summary or "0 คู่")
-        col3.metric("🔵 ฟองน้ำ 200", f"{sum(d['_ft2']+d['_gft2'] for d in docs)} คู่")
-        col4.metric("🔵 ฟองน้ำ 212/213", f"{sum(d['_ft3']+d['_gft3'] for d in docs)} คู่")
+                elif item['type'] == 'foam212':
+                    if item['subtype'] == '213':
+                        foam213_qty += item['qty']
+                    else:
+                        foam212_qty += item['qty']
+
+        # นับจำนวน metrics ที่ต้องแสดง
+        n_canvas = len(canvas_by_sub)
+        total_cols = 1 + n_canvas + 1 + (1 if foam212_qty else 0) + (1 if foam213_qty else 0)
+        metric_cols = st.columns(max(total_cols, 4))
+
+        metric_cols[0].metric("📄 เอกสาร", f"{len(docs)} IFO")
+        ci = 1
+        for subtype, qty in sorted(canvas_by_sub.items()):
+            metric_cols[ci].metric(f"🟢 ผ้าใบ {subtype}", f"{qty} คู่")
+            ci += 1
+        metric_cols[ci].metric("🔵 ฟองน้ำ 200", f"{sum(d['_ft2']+d['_gft2'] for d in docs)} คู่")
+        ci += 1
+        if foam212_qty:
+            metric_cols[ci].metric("🔵 ฟองน้ำ 212", f"{foam212_qty} คู่")
+            ci += 1
+        if foam213_qty:
+            metric_cols[ci].metric("🔵 ฟองน้ำ 213", f"{foam213_qty} คู่")
 
         st.divider()
 

@@ -155,6 +155,14 @@ def parse_pdf(file_bytes):
 
 # ── CALC HELPERS ──────────────────────────────────────
 
+def th_date(s):
+    if not s: return ''
+    try:
+        y,m,d = s.split('-')
+        mn=['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+        return f"{int(d)} {mn[int(m)]} {int(y)+543}"
+    except: return s
+
 def _aggregate(doc):
     doc['_canvas']    = [x for x in doc['items'] if x['type']=='canvas'  and not x['gift']]
     doc['_foam200']   = [x for x in doc['items'] if x['type']=='foam200' and not x['gift']]
@@ -569,7 +577,7 @@ if uploaded_files:
 
         # per doc
         for doc in docs:
-            with st.expander(f"📄 {doc['docId']} — {doc['customer']} ({th_date(doc['date']) if hasattr(st,'session_state') else doc['date']})", expanded=True):
+            with st.expander(f"📄 {doc['docId']} — {doc['customer']} ({th_date(doc['date'])})", expanded=True):
                 c1,c2,c3 = st.columns(3)
                 c1.write(f"**ลูกค้า:** {doc['customer']}")
                 c2.write(f"**อ.{doc.get('amphoe','')} จ.{doc.get('province','')}**")
@@ -601,10 +609,4 @@ if uploaded_files:
             use_container_width=True, type="primary"
         )
 
-def th_date(s):
-    if not s: return ''
-    try:
-        y,m,d = s.split('-')
-        mn=['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
-        return f"{int(d)} {mn[int(m)]} {int(y)+543}"
-    except: return s
+

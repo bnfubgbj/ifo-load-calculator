@@ -154,6 +154,21 @@ def parse_pdf(file_bytes):
     return result
 
 # ── CALC HELPERS ──────────────────────────────────────
+
+def _aggregate(doc):
+    doc['_canvas']    = [x for x in doc['items'] if x['type']=='canvas'  and not x['gift']]
+    doc['_foam200']   = [x for x in doc['items'] if x['type']=='foam200' and not x['gift']]
+    doc['_foam212']   = [x for x in doc['items'] if x['type']=='foam212' and not x['gift']]
+    doc['_gift_c']    = [x for x in doc['items'] if x['type']=='canvas'  and x['gift']]
+    doc['_gift_f200'] = [x for x in doc['items'] if x['type']=='foam200' and x['gift']]
+    doc['_gift_f212'] = [x for x in doc['items'] if x['type']=='foam212' and x['gift']]
+    doc['_ct']   = sum(x['qty'] for x in doc['_canvas'])
+    doc['_ft2']  = sum(x['qty'] for x in doc['_foam200'])
+    doc['_ft3']  = sum(x['qty'] for x in doc['_foam212'])
+    doc['_gct']  = sum(x['qty'] for x in doc['_gift_c'])
+    doc['_gft2'] = sum(x['qty'] for x in doc['_gift_f200'])
+    doc['_gft3'] = sum(x['qty'] for x in doc['_gift_f212'])
+
 def calc_canvas(n):
     boxes, rem = divmod(n, BOX_CANVAS)
     return {'qty':n,'boxes':boxes,'rem':rem}

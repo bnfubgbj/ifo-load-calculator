@@ -5,158 +5,104 @@ import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from collections import defaultdict
 from datetime import datetime
 
-st.set_page_config(
-    page_title="คำนวณโหลดสินค้า IFO",
-    page_icon="📦",
-    layout="centered"
-)
+st.set_page_config(page_title="คำนวณโหลดสินค้า IFO", page_icon="📦", layout="wide")
 
-# ── CSS ───────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap');
-html, body, [class*="css"] { font-family: 'IBM Plex Sans Thai', sans-serif; }
-
-.main-header {
-    background: linear-gradient(135deg, #1B4F8A, #163D6E);
-    color: white; border-radius: 12px; padding: 20px 24px;
-    margin-bottom: 20px; display: flex; align-items: center; gap: 14px;
-}
-.main-header h1 { font-size: 20px; font-weight: 700; margin: 0; }
-.main-header p  { font-size: 13px; opacity: 0.7; margin: 4px 0 0; }
-
-.doc-card {
-    background: white; border: 1px solid #DDE3ED;
-    border-radius: 12px; padding: 16px; margin-bottom: 14px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
-}
-.doc-title { font-size: 16px; font-weight: 700; color: #1B4F8A; margin-bottom: 2px; }
-.doc-sub   { font-size: 13px; color: #64748B; margin-bottom: 12px; }
-
-.metric-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
-.metric-box {
-    flex: 1; min-width: 90px; background: #F8FAFC;
-    border: 1px solid #DDE3ED; border-radius: 8px;
-    padding: 10px 12px; text-align: center;
-}
-.metric-label { font-size: 11px; color: #94A3B8; font-weight: 600;
-                text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }
-.metric-value { font-size: 22px; font-weight: 700; color: #1E293B; font-family: monospace; line-height: 1; }
-.metric-unit  { font-size: 12px; color: #64748B; }
-.metric-sub   { font-size: 11px; color: #16A34A; margin-top: 3px; }
-
-.type-label { font-size: 13px; font-weight: 700; margin: 10px 0 6px; }
-.lbl-canvas { color: #166534; }
-.lbl-foam   { color: #1E40AF; }
-.lbl-gift   { color: #854D0E; }
-
-.total-bar {
-    background: #1B4F8A; color: white; border-radius: 8px;
-    padding: 10px 16px; display: flex; justify-content: space-between;
-    align-items: center; margin-top: 10px; font-weight: 600;
-}
-
-.grand-card {
-    background: linear-gradient(135deg, #1B4F8A, #1E40AF);
-    color: white; border-radius: 12px; padding: 18px;
-    margin-bottom: 16px;
-}
-.grand-card h3 { font-size: 14px; opacity: 0.8; margin-bottom: 12px; }
-
-.chip {
-    display: inline-block; font-size: 11px; font-weight: 600;
-    padding: 2px 9px; border-radius: 20px; margin-right: 4px;
-}
-.chip-c { background: #DCFCE7; color: #166534; }
-.chip-f { background: #DBEAFE; color: #1E40AF; }
-.chip-g { background: #FEF9C3; color: #854D0E; }
-
-.stDataFrame { border-radius: 8px; overflow: hidden; }
+@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap');
+html, body, [class*="css"] { font-family: 'Sarabun', sans-serif; }
+.header { background: linear-gradient(135deg,#1B4F8A,#163D6E); color:white; border-radius:12px; padding:18px 24px; margin-bottom:20px; }
+.header h1 { font-size:22px; font-weight:700; margin:0; }
+.header p  { font-size:13px; opacity:.7; margin:4px 0 0; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── HEADER ────────────────────────────────────────────
 st.markdown("""
-<div class="main-header">
-  <div style="font-size:32px">📦</div>
-  <div>
-    <h1>คำนวณโหลดสินค้า IFO</h1>
-    <p>อัปโหลด PDF → คำนวณโหล / ลัง / กระสอบ → ดาวน์โหลด Excel</p>
-  </div>
+<div class="header">
+  <h1>📦 คำนวณโหลดสินค้า IFO</h1>
+  <p>อัปโหลด PDF → คำนวณอัตโนมัติ → ดาวน์โหลด Excel</p>
 </div>
 """, unsafe_allow_html=True)
 
-# ── PARSE ─────────────────────────────────────────────
-MONTH_MAP = {
-    'ม.ค.':'01','ก.พ.':'02','มี.ค.':'03','เม.ย.':'04',
-    'พ.ค.':'05','มิ.ย.':'06','ก.ค.':'07','ส.ค.':'08',
-    'ก.ย.':'09','ต.ค.':'10','พ.ย.':'11','ธ.ค.':'12'
-}
+# ── CONSTANTS ─────────────────────────────────────────
+BOX_CANVAS   = 12   # ผ้าใบ: 12 คู่/กล่อง
+SACK_FOAM200 = 120  # ฟองน้ำ 200: 120 คู่/กระสอบ
+PACK_FOAM212 = 24   # ฟองน้ำ 212/213: 24 คู่/แพค
+DOZ          = 12   # 1 โหล = 12 คู่
 
+# ── TEXT HELPERS ──────────────────────────────────────
 def clean_cid(s):
     s = re.sub(r'\(cid:\d+\)', '', s)
-    s = re.sub(r'\s+', ' ', s).strip()
-    return s
+    return re.sub(r'\s+', ' ', s).strip()
 
 def normalize_thai(s):
-    """แก้ตัวอักษรไทยที่ถูก PDF ทำให้เพี้ยน"""
     fixes = [
-        # ชื่อลูกค้า
-        (r'พรพมิ\s*ล', 'พรพิมล'),
-        (r'วาสนา\s*จางนะ', 'วาสนา จางนะ'),
-        (r'จอมแจง้', 'จอมแจ้ง'),
-        (r'บารเ์\s*บอร์?', 'บาร์เบอร์'),
-        (r'พศิ\s*ษิ\s*ฐ์?', 'พิษฐ์'),
-        (r'พษิ\s*ฐ์?', 'พิษฐ์'),
-        (r'รา้น', 'ร้าน'),
-        # จังหวัด/อำเภอ
-        (r'เพชรบรุ\s*ี', 'เพชรบุรี'),
-        (r'สระบรุ\s*ี', 'สระบุรี'),
-        (r'แมฮ่\s*อ่\s*งสอน', 'แม่ฮ่องสอน'),
-        (r'แมฮ่\s*อ่', 'แม่ฮ่องสอน'),
-        (r'แมส่\s*ะเรยี\s*ง', 'แม่สะเรียง'),
-        (r'ทา่\s*ยาง', 'ท่ายาง'),
-        (r'วหิ\s*ารแดง', 'วิหารแดง'),
-        # สินค้า
-        (r'ฟองนา้', 'ฟองน้ำ'),
-        (r'ฟองนํา', 'ฟองน้ำ'),
-        (r'ผา้\s*ใบ', 'ผ้าใบ'),
-        (r'นา้\s*ตาล', 'น้ำตาล'),
-        (r'นา้\s*เงนิ', 'น้ำเงิน'),
-        (r'หนา้\s*ขาว', 'หน้าขาว'),
-        (r'ลว้น', 'ล้วน'),
-        (r'เขม้', 'เข้ม'),
-        (r'ออ่น', 'อ่อน'),
-        (r'พเิ\s*ศษ', 'พิเศษ'),
-        (r'ดํา', 'ดำ'),
-        (r'นํา', 'น้ำ'),
-        (r'์$', ''),
-        (r'\s+', ' '),
+        (r'พรพมิ\s*ล','พรพิมล'),(r'จอมแจง้','จอมแจ้ง'),
+        (r'บารเ์\s*บอร์?','บาร์เบอร์'),(r'พศิ\s*ษิ\s*ฐ์?','พิษฐ์'),
+        (r'รา้น','ร้าน'),(r'เพชรบรุ\s*ี','เพชรบุรี'),
+        (r'สระบรุ\s*ี','สระบุรี'),(r'แมฮ่\s*อ่\s*งสอน','แม่ฮ่องสอน'),
+        (r'แมฮ่\s*อ่','แม่ฮ่องสอน'),(r'ทา่\s*ยาง','ท่ายาง'),
+        (r'วหิ\s*ารแดง','วิหารแดง'),(r'ฟองนา้','ฟองน้ำ'),
+        (r'ฟองนํา','ฟองน้ำ'),(r'ผา้\s*ใบ','ผ้าใบ'),
+        (r'นา้\s*ตาล','น้ำตาล'),(r'นา้\s*เงนิ','น้ำเงิน'),
+        (r'หนา้\s*ขาว','หน้าขาว'),(r'ลว้น','ล้วน'),
+        (r'เขม้','เข้ม'),(r'ออ่น','อ่อน'),(r'พเิ\s*ศษ','พิเศษ'),
+        (r'ดํา','ดำ'),(r'นํา','น้ำ'),(r'์$',''),(r'\s+',' '),
     ]
-    for pattern, replacement in fixes:
-        s = re.sub(pattern, replacement, s)
+    for p,r in fixes: s = re.sub(p,r,s)
     return s.strip()
 
+# ── PDF PARSE ─────────────────────────────────────────
 def extract_lines(file_bytes):
-    """ใช้ extract_words จัดกลุ่มตาม y-position เพื่อให้ได้บรรทัดที่ถูกต้อง"""
     lines = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
             words = page.extract_words(x_tolerance=3, y_tolerance=3)
             rows = {}
             for w in words:
-                y = round(w['top'] / 5) * 5
-                rows.setdefault(y, []).append(w['text'])
-            for y in sorted(rows.keys()):
-                line = clean_cid(' '.join(rows[y]))
-                if line:
-                    lines.append(line)
+                y = round(w['top']/5)*5
+                rows.setdefault(y,[]).append(w['text'])
+            for y in sorted(rows):
+                l = clean_cid(' '.join(rows[y]))
+                if l: lines.append(l)
     return lines
 
+def detect_product_type(barcode, desc):
+    """แยกประเภทสินค้าและกลุ่ม"""
+    txt = barcode + desc
+    # ผ้าใบ
+    if re.search(r'ผ้าใบ|205[SR]|121Z|zafari|ซาฟารี', txt, re.I): return 'canvas'
+    # ฟองน้ำ 212/213
+    if re.search(r'212|213', barcode[:3]): return 'foam212'
+    # ฟองน้ำ 200
+    if re.search(r'ฟองน้ำ|200|212|213', txt): return 'foam200'
+    return 'gift'
+
+def get_product_subtype(barcode, desc):
+    """ดึงชื่อรุ่นสินค้า เช่น 205S, 205R, 200, 212, 213"""
+    d = normalize_thai(desc)
+    if '205S' in d or '205S' in barcode: return '205S'
+    if '205R' in d or '205R' in barcode: return '205R'
+    if '121Z' in d or '121Z' in barcode or re.search(r'zafari|ซาฟารี',d,re.I): return 'Zafari'
+    if re.search(r'213', barcode[:3]): return '213'
+    if re.search(r'212', barcode[:3]): return '212'
+    if '200' in d: return '200'
+    return d.split()[0] if d else 'อื่นๆ'
+
+def is_gift(barcode, desc, price_str=''):
+    """ตรวจว่าเป็นของแถมมั้ย — ราคา 0 หรือมีคำว่าแถม"""
+    if re.search(r'แถม|gift|free', desc, re.I): return True
+    return False
+
+MONTH_MAP = {'ม.ค.':'01','ก.พ.':'02','มี.ค.':'03','เม.ย.':'04',
+             'พ.ค.':'05','มิ.ย.':'06','ก.ค.':'07','ส.ค.':'08',
+             'ก.ย.':'09','ต.ค.':'10','พ.ย.':'11','ธ.ค.':'12'}
+
 def parse_pdf(file_bytes):
-    result = {'docId':'', 'date':'', 'customer':'', 'province':'', 'amphoe':'', 'items':[]}
+    result = {'docId':'','date':'','customer':'','province':'','amphoe':'','items':[]}
     lines = extract_lines(file_bytes)
     text = '\n'.join(lines)
 
@@ -168,7 +114,7 @@ def parse_pdf(file_bytes):
     pattern = r'(\d{1,2})\s+(' + '|'.join(re.escape(k) for k in MONTH_MAP) + r')\s+(\d{4})'
     m = re.search(pattern, text)
     if m:
-        d, mo, y = m.group(1), m.group(2), int(m.group(3))
+        d,mo,y = m.group(1),m.group(2),int(m.group(3))
         if y > 2500: y -= 543
         result['date'] = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
 
@@ -176,215 +122,405 @@ def parse_pdf(file_bytes):
     for line in lines[:20]:
         m = re.search(r'ช[อื]{1,2}\s*ล[กู]{1,2}\s*ค[า้]{1,2}\s*:\s*(.+?)(?:\s+ว[นั]{1,2}\s*ท|$)', line)
         if m:
-            name = m.group(1).strip()
+            name = normalize_thai(m.group(1).strip())
             if len(name) > 1:
-                result['customer'] = normalize_thai(name)
+                result['customer'] = name
                 break
 
-    # province & amphoe — หาจากบรรทัดที่อยู่ลูกค้า (มี จ. และ อ.)
+    # province & amphoe
     for line in lines[:15]:
-        mp = re.search(r'จ\.([^\d\s]+(?:\s+[^\d\s]+)?)', line)
-        ma = re.search(r'อ\.([^\d\s.]+(?:\s+[^\d\s.]+)?)', line)
-        if mp:
-            prov = re.sub(r'\d+.*', '', mp.group(1)).strip()
-            result['province'] = normalize_thai(prov)
+        mp = re.search(r'จ\.([ก-๙]+(?:\s+[ก-๙]+)?)', line)
+        ma = re.search(r'อ\.([ก-๙]+(?:\s+[ก-๙]+)?)(?:\s+จ\.)?', line)
+        if mp: result['province'] = normalize_thai(re.sub(r'\d+.*','',mp.group(1)).strip())
         if ma:
-            amp = re.sub(r'\d+.*', '', ma.group(1)).strip()
-            result['amphoe'] = normalize_thai(amp)
-        if result['province']:
-            break
+            amp = normalize_thai(re.sub(r'\d+.*','',ma.group(1)).strip())
+            result['amphoe'] = re.sub(r'\s*จ$','',amp).strip()
+        if result['province']: break
 
     # items
     for line in lines:
         if 'Z0001' in line or 'มัดจำ' in line: continue
         m = re.search(r'(\d{9})\s+(.+?)\s+(\d+)\s+คู่', line)
         if m:
-            barcode, desc, qty = m.group(1), m.group(2).strip(), int(m.group(3))
-            if qty > 0:
-                t = detect_type(barcode, desc)
-                desc_clean = normalize_thai(re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$', '', desc).strip())
-                result['items'].append({'desc': desc_clean, 'type': t, 'qty': qty})
-    return result, text
+            barcode = m.group(1)
+            desc_raw = m.group(2).strip()
+            qty = int(m.group(3))
+            if qty <= 0: continue
+            desc = normalize_thai(re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$','',desc_raw).strip())
+            ptype = detect_product_type(barcode, desc)
+            subtype = get_product_subtype(barcode, desc)
+            gift = is_gift(barcode, desc)
+            result['items'].append({'desc':desc,'type':ptype,'subtype':subtype,'qty':qty,'gift':gift})
+    return result
 
-def detect_type(barcode, desc):
-    txt = barcode + desc
-    if re.search(r'ผ้าใบ|205[SR]', txt): return 'canvas'
-    if re.search(r'ฟองน้ำ|200|212|213', txt): return 'foam'
-    return 'gift'
+# ── CALC HELPERS ──────────────────────────────────────
+def calc_canvas(n):
+    boxes, rem = divmod(n, BOX_CANVAS)
+    return {'qty':n,'boxes':boxes,'rem':rem}
 
-# ── CALC ──────────────────────────────────────────────
-def foam_calc(n):
-    if n == 0: return {'doz':0,'rp':0,'txt':'-','big':0}
-    doz, rp = divmod(n, 12)
-    big, rem = divmod(n, 120)
-    sm, lf = divmod(rem, 12)
-    txt = f'{big} กระสอบใหญ่'
-    if sm: txt += f' {sm} กระสอบ'
-    if lf: txt += f' 1 กระสอบ({lf} คู่)'
-    return {'doz':doz,'rp':rp,'big':big,'sm':sm,'lf':lf,'txt':txt}
+def calc_foam200(n):
+    doz_total = n // DOZ
+    rem_pairs = n % DOZ
+    sacks, rem_doz = divmod(doz_total, 10)  # 10 โหล = 1 กระสอบ
+    return {'qty':n,'doz':doz_total,'sacks':sacks,'rem_doz':rem_doz,'rem_pairs':rem_pairs}
 
-def canvas_calc(n):
-    lang, rem = divmod(n, 12)
-    return {'lang':lang,'rem':rem,'doz':lang}
+def calc_foam212(n):
+    packs, rem = divmod(n, PACK_FOAM212)
+    rem_doz, rem_pairs = divmod(rem, DOZ)
+    return {'qty':n,'packs':packs,'rem_doz':rem_doz,'rem_pairs':rem_pairs}
 
-def format_th_date(s):
-    if not s: return ''
-    try:
-        y, m, d = s.split('-')
-        mn = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
-        return f"{int(d)} {mn[int(m)]} {int(y)+543}"
-    except: return s
+def fmt_canvas(c):
+    s = f"{c['qty']} คู่ / {c['boxes']} กล่อง"
+    if c['rem']: s += f" เศษ {c['rem']} คู่"
+    return s
 
-# ── EXCEL ─────────────────────────────────────────────
+def fmt_foam200(f):
+    s = f"{f['qty']} คู่ / {f['sacks']} กระสอบ"
+    if f['rem_doz']: s += f" เศษ {f['rem_doz']} โหล"
+    return s
+
+def fmt_foam212(f):
+    s = f"{f['qty']} คู่ / {f['packs']} แพค"
+    if f['rem_doz']: s += f" เศษ {f['rem_doz']} โหล"
+    return s
+
+# ── BUILD EXCEL ───────────────────────────────────────
 def build_excel(docs):
     wb = Workbook()
-    BLUE='1B4F8A'; WHITE='FFFFFF'
-    CANVAS_BG='E2EFDA'; FOAM_BG='DBEAFE'; GIFT_BG='FEF9C3'; SUM_BG='D6E4F0'
-    thin = Side(style='thin', color='CCCCCC')
-    bdr = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    def hf(sz=11): return Font(name='TH Sarabun New', bold=True, color=WHITE, size=sz)
-    def nf(bold=False, sz=10): return Font(name='TH Sarabun New', bold=bold, size=sz)
-    def fl(c): return PatternFill('solid', start_color=c, end_color=c)
-    def al(h='left'): return Alignment(horizontal=h, vertical='center', wrap_text=True)
+    # colors
+    C_BLUE='1B4F8A'; C_WHITE='FFFFFF'
+    C_CANVAS='D5E8D4'; C_CANVAS_H='2D6A27'
+    C_FOAM200='DAE8FC'; C_FOAM200_H='1E3A8A'
+    C_FOAM212='D0E4FF'; C_FOAM212_H='1E40AF'
+    C_GIFT='FFF2CC'; C_GIFT_H='7D4E00'
+    C_SUM='1B4F8A'; C_ALT='F5F8FA'
 
-    # ── Sheet 1: สรุป ──
+    thin = Side(style='thin', color='BBBBBB')
+    bdr  = Border(left=thin,right=thin,top=thin,bottom=thin)
+
+    def hf(sz=11,color=C_WHITE,bold=True):
+        return Font(name='TH Sarabun New',bold=bold,color=color,size=sz)
+    def nf(sz=11,bold=False,color='1E293B'):
+        return Font(name='TH Sarabun New',bold=bold,size=sz,color=color)
+    def fl(c): return PatternFill('solid',start_color=c,end_color=c)
+    def al(h='center',v='center',wrap=True):
+        return Alignment(horizontal=h,vertical=v,wrap_text=wrap)
+
+    def write(ws,row,col,val,font=None,fill=None,align=None,border=None):
+        c = ws.cell(row=row,column=col,value=val)
+        if font:   c.font   = font
+        if fill:   c.fill   = fill
+        if align:  c.alignment = align
+        if border: c.border = border
+        return c
+
+    def merge_write(ws,r1,c1,r2,c2,val,font=None,fill=None,align=None):
+        ws.merge_cells(start_row=r1,start_column=c1,end_row=r2,end_column=c2)
+        c = ws.cell(row=r1,column=c1,value=val)
+        if font:  c.font  = font
+        if fill:  c.fill  = fill
+        if align: c.alignment = align
+        # borders on all cells
+        thin2 = Side(style='thin',color='BBBBBB')
+        b = Border(left=thin2,right=thin2,top=thin2,bottom=thin2)
+        for rr in range(r1,r2+1):
+            for cc in range(c1,c2+1):
+                ws.cell(row=rr,column=cc).border = b
+
+    # ── aggregate data ──
+    for doc in docs:
+        doc['_canvas']     = [x for x in doc['items'] if x['type']=='canvas' and not x['gift']]
+        doc['_foam200']    = [x for x in doc['items'] if x['type']=='foam200' and not x['gift']]
+        doc['_foam212']    = [x for x in doc['items'] if x['type']=='foam212' and not x['gift']]
+        doc['_gift_c']     = [x for x in doc['items'] if x['type']=='canvas' and x['gift']]
+        doc['_gift_f200']  = [x for x in doc['items'] if x['type']=='foam200' and x['gift']]
+        doc['_gift_f212']  = [x for x in doc['items'] if x['type']=='foam212' and x['gift']]
+
+        doc['_ct']   = sum(x['qty'] for x in doc['_canvas'])
+        doc['_ft2']  = sum(x['qty'] for x in doc['_foam200'])
+        doc['_ft3']  = sum(x['qty'] for x in doc['_foam212'])
+        doc['_gct']  = sum(x['qty'] for x in doc['_gift_c'])
+        doc['_gft2'] = sum(x['qty'] for x in doc['_gift_f200'])
+        doc['_gft3'] = sum(x['qty'] for x in doc['_gift_f212'])
+
+    def th_date(s):
+        if not s: return ''
+        try:
+            y,m,d = s.split('-')
+            mn=['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+            return f"{int(d)} {mn[int(m)]} {int(y)+543}"
+        except: return s
+
+    # ════════════════════════════════════════════════
+    # SHEET 1: สรุปรายเอกสาร
+    # ════════════════════════════════════════════════
     ws = wb.active
-    ws.title = 'สรุปโหลดสินค้า'
-    # col layout: A=วันที่ B=เลขที่ C=ลูกค้า D=ผ้าใบ(คู่) E=ผ้าใบ(ลัง) F=ฟองน้ำ(คู่) G=ฟองน้ำ(โหล) H=ฟองน้ำ(กระสอบ) I=ของแถม(คู่) J=รวม
-    NCOLS = 13
-    ws.merge_cells('A1:M1')
-    ws['A1'] = 'สรุปโหลดสินค้า — บริษัท นันยางมาร์เก็ตติ้ง จำกัด'
-    ws['A1'].font = hf(14); ws['A1'].fill = fl(BLUE)
-    ws['A1'].alignment = al('center'); ws.row_dimensions[1].height = 28
+    ws.title = 'สรุปรายเอกสาร'
 
-    ws.merge_cells('A2:M2')
-    ws['A2'] = f'พิมพ์: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
-    ws['A2'].font = nf(); ws['A2'].alignment = al('right')
+    # col layout: A=วันที่ B=IFO C=ลูกค้า D=อ. E=จ.
+    # F=ผ้าใบคู่ G=กล่อง H=เศษ  I=ของแถมผ้าใบคู่ J=กล่อง K=เศษ
+    # L=ฟองน้ำ200คู่ M=โหล N=กระสอบ O=เศษโหล  P=ของแถม200คู่ Q=กระสอบ R=เศษโหล
+    # S=ฟองน้ำ212/213คู่ T=แพค U=เศษโหล  V=ของแถม212คู่ W=แพค
+    # X=รวม
+    NCOLS = 24
+
+    # title
+    merge_write(ws,1,1,1,NCOLS,
+        'สรุปโหลดสินค้า — บริษัท นันยางมาร์เก็ตติ้ง จำกัด',
+        font=hf(14),fill=fl(C_BLUE),align=al())
+    ws.row_dimensions[1].height = 30
+
+    merge_write(ws,2,1,2,NCOLS,
+        f'พิมพ์: {datetime.now().strftime("%d/%m/%Y %H:%M")}',
+        font=nf(10),align=al('right'))
     ws.row_dimensions[2].height = 16
 
-    # Row 3: group headers — เขียนค่าใน cell แรกของแต่ละกลุ่ม แล้วค่อย merge
-    grp_hdrs = {1:'', 6:'ผ้าใบ', 8:'ฟองน้ำ', 12:'ของแถม', 13:'รวม (คู่)'}
-    grp_fills = {1:BLUE, 6:'2D6A27', 8:'1E3A8A', 12:'78350F', 13:BLUE}
-    grp_range = {1:(1,5), 6:(6,7), 8:(8,11), 12:(12,12), 13:(13,13)}
+    # group row 3
+    groups = [
+        (1,5,'ข้อมูลเอกสาร',C_BLUE),
+        (6,11,'ผ้าใบ (12 คู่/กล่อง)',C_CANVAS_H),
+        (12,18,'ฟองน้ำ 200 (120 คู่/กระสอบ)',C_FOAM200_H),
+        (19,23,'ฟองน้ำ 212/213 (24 คู่/แพค)',C_FOAM212_H),
+        (24,24,'รวม',C_BLUE),
+    ]
+    for sc,ec,label,color in groups:
+        merge_write(ws,3,sc,3,ec,label,
+            font=hf(11),fill=fl(color),align=al())
+    ws.row_dimensions[3].height = 22
 
-    for start_col, (sc, ec) in grp_range.items():
-        # เขียนค่าใน cell แรกก่อน merge
-        c = ws.cell(row=3, column=sc, value=grp_hdrs[start_col])
-        c.font = hf(11); c.alignment = al('center')
-        c.fill = fl(grp_fills[start_col]); c.border = bdr
-        # merge ถ้ามีหลาย col
-        if sc != ec:
-            ws.merge_cells(start_row=3, start_column=sc, end_row=3, end_column=ec)
-        # ใส่ style ให้ทุก cell ในกลุ่ม
-        for col in range(sc, ec+1):
-            c = ws.cell(row=3, column=col)
-            c.fill = fl(grp_fills[start_col]); c.border = bdr
-    ws.row_dimensions[3].height = 20
+    # sub headers row 4
+    sub = ['วันที่','เลขที่IFO','ชื่อลูกค้า','อำเภอ','จังหวัด',
+           'คู่','กล่อง','เศษคู่','ของแถม คู่','กล่อง','เศษคู่',
+           'คู่','โหล','กระสอบ','เศษโหล','ของแถม คู่','กระสอบ','เศษโหล',
+           'คู่','แพค','เศษโหล','ของแถม คู่','แพค',
+           'รวมคู่']
+    sub_colors = [C_BLUE]*5 + [C_CANVAS_H]*6 + [C_FOAM200_H]*7 + [C_FOAM212_H]*5 + [C_BLUE]
+    for col,(h,color) in enumerate(zip(sub,sub_colors),1):
+        write(ws,4,col,h,font=hf(10),fill=fl(color),align=al(),border=bdr)
+    ws.row_dimensions[4].height = 36
 
-    # Row 4: sub headers
-    sub_hdrs = ['วันที่','เลขที่เอกสาร','ชื่อลูกค้า','อำเภอ','จังหวัด','คู่','ลัง (12คู่)','คู่','โหล','กระสอบใหญ่ (10โหล)','เศษ(โหล)','คู่','รวม (คู่)']
-    sub_fills = [BLUE,BLUE,BLUE,BLUE,BLUE,'2D6A27','2D6A27','1E3A8A','1E3A8A','1E3A8A','1E3A8A','78350F',BLUE]
-    for col, (h, bg) in enumerate(zip(sub_hdrs, sub_fills), 1):
-        c = ws.cell(row=4, column=col, value=h)
-        c.font = hf(10); c.fill = fl(bg)
-        c.alignment = al('center'); c.border = bdr
-    ws.row_dimensions[4].height = 20
+    # data rows
+    tot = defaultdict(int)
+    for i,doc in enumerate(docs):
+        r = 5+i
+        ct,ft2,ft3 = doc['_ct'],doc['_ft2'],doc['_ft3']
+        gct,gft2,gft3 = doc['_gct'],doc['_gft2'],doc['_gft3']
+        cc=calc_canvas(ct); cf2=calc_foam200(ft2); cf3=calc_foam212(ft3)
+        gcc=calc_canvas(gct); gcf2=calc_foam200(gft2); gcf3=calc_foam212(gft3)
+        tot['ct']+=ct; tot['ft2']+=ft2; tot['ft3']+=ft3
+        tot['gct']+=gct; tot['gft2']+=gft2; tot['gft3']+=gft3
 
-    tot_c = tot_f = tot_g = 0
-    for i, doc in enumerate(docs):
-        r = 5 + i
-        ci = [x for x in doc['items'] if x['type']=='canvas']
-        fi = [x for x in doc['items'] if x['type']=='foam']
-        gi = [x for x in doc['items'] if x['type']=='gift']
-        ct = sum(x['qty'] for x in ci)
-        ft = sum(x['qty'] for x in fi)
-        gt = sum(x['qty'] for x in gi)
-        cf_ = canvas_calc(ct); ff_ = foam_calc(ft); gf_ = canvas_calc(gt)
-        tot_c += ct; tot_f += ft; tot_g += gt
-
-        bg = 'F7FAFB' if i % 2 == 0 else 'FFFFFF'
+        bg = 'FFFFFF' if i%2==0 else C_ALT
         row_vals = [
-            format_th_date(doc['date']), doc['docId'], doc['customer'],
-            doc.get('amphoe',''), doc.get('province',''),
-            ct if ct else '-', cf_['lang'] if ct else '-',
-            ft if ft else '-', ff_['doz'] if ft else '-', ff_['big'] if ft else '-',
-            ff_['sm'] if ft else '-',
-            gt if gt else '-',
-            ct+ft+gt
+            th_date(doc['date']),doc['docId'],doc['customer'],
+            doc.get('amphoe',''),doc.get('province',''),
+            ct or '-',cc['boxes'] or '-',cc['rem'] or '-',
+            gct or '-',gcc['boxes'] or '-',gcc['rem'] or '-',
+            ft2 or '-',cf2['doz'] or '-',cf2['sacks'] or '-',cf2['rem_doz'] or '-',
+            gft2 or '-',gcf2['sacks'] or '-',gcf2['rem_doz'] or '-',
+            ft3 or '-',cf3['packs'] or '-',cf3['rem_doz'] or '-',
+            gft3 or '-',gcf3['packs'] or '-',
+            ct+ft2+ft3+gct+gft2+gft3
         ]
-        row_bgs = [bg,bg,bg,bg,bg, CANVAS_BG,CANVAS_BG, FOAM_BG,FOAM_BG,FOAM_BG,FOAM_BG, GIFT_BG if gt else bg, SUM_BG]
-        for col, (val, bg2) in enumerate(zip(row_vals, row_bgs), 1):
-            c = ws.cell(row=r, column=col, value=val)
-            c.fill = fl(bg2); c.font = nf(bold=(col==10))
-            c.alignment = al('left') if col <= 3 else al('center')
-            c.border = bdr
-        ws.row_dimensions[r].height = 28
+        row_bgs = [bg]*5 + \
+            [C_CANVAS if ct else bg]*3 + [C_GIFT if gct else bg]*3 + \
+            [C_FOAM200 if ft2 else bg]*4 + [C_GIFT if gft2 else bg]*3 + \
+            [C_FOAM212 if ft3 else bg]*3 + [C_GIFT if gft3 else bg]*2 + \
+            [C_ALT]
+        for col,(val,bgc) in enumerate(zip(row_vals,row_bgs),1):
+            write(ws,r,col,val,
+                font=nf(11,bold=(col==NCOLS)),
+                fill=fl(bgc),
+                align=al('left' if col<=3 else 'center'),
+                border=bdr)
+        ws.row_dimensions[r].height = 22
 
     # summary row
-    sr = 5 + len(docs)
-    ff_t = foam_calc(tot_f); cf_t = canvas_calc(tot_c)
-    ws.merge_cells(start_row=sr, start_column=1, end_row=sr, end_column=5)
-    sum_data = {
-        1: 'รวมทั้งหมด',
-        6: tot_c if tot_c else '-',
-        7: cf_t['lang'] if tot_c else '-',
-        8: tot_f if tot_f else '-',
-        9: ff_t['doz'] if tot_f else '-',
-        10: ff_t['big'] if tot_f else '-',
-        11: ff_t['sm'] if tot_f else '-',
-        12: tot_g if tot_g else '-',
-        13: tot_c+tot_f+tot_g
+    sr = 5+len(docs)
+    merge_write(ws,sr,1,sr,5,'รวมทั้งหมด',font=hf(11),fill=fl(C_SUM),align=al())
+    cc_t=calc_canvas(tot['ct']); cf2_t=calc_foam200(tot['ft2']); cf3_t=calc_foam212(tot['ft3'])
+    gcc_t=calc_canvas(tot['gct']); gcf2_t=calc_foam200(tot['gft2']); gcf3_t=calc_foam212(tot['gft3'])
+    sum_vals = {
+        6:tot['ct'] or '-', 7:cc_t['boxes'] or '-', 8:cc_t['rem'] or '-',
+        9:tot['gct'] or '-', 10:gcc_t['boxes'] or '-', 11:gcc_t['rem'] or '-',
+        12:tot['ft2'] or '-', 13:cf2_t['doz'] or '-', 14:cf2_t['sacks'] or '-', 15:cf2_t['rem_doz'] or '-',
+        16:tot['gft2'] or '-', 17:gcf2_t['sacks'] or '-', 18:gcf2_t['rem_doz'] or '-',
+        19:tot['ft3'] or '-', 20:cf3_t['packs'] or '-', 21:cf3_t['rem_doz'] or '-',
+        22:tot['gft3'] or '-', 23:gcf3_t['packs'] or '-',
+        24:sum(tot.values())
     }
-    for col in range(1, NCOLS+1):
-        c = ws.cell(row=sr, column=col)
-        if col in sum_data:
-            c.value = sum_data[col]
-        c.font = hf(10); c.fill = fl(BLUE)
-        c.alignment = al('center'); c.border = bdr
-    ws.row_dimensions[sr].height = 28
+    for col in range(6,NCOLS+1):
+        write(ws,sr,col,sum_vals.get(col,''),
+            font=hf(11),fill=fl(C_SUM),align=al('center'),border=bdr)
+    ws.row_dimensions[sr].height = 24
 
-    for col, w in enumerate([12,14,24,12,14,10,12,10,10,18,10,10,12], 1):
+    # col widths
+    widths = [12,14,24,12,14, 8,8,8, 10,8,8, 8,8,10,10, 10,10,10, 8,8,10, 10,8, 10]
+    for col,w in enumerate(widths,1):
         ws.column_dimensions[get_column_letter(col)].width = w
 
-    # ── Sheet 2: รายละเอียด ──
-    ws2 = wb.create_sheet('รายละเอียด')
-    ws2.merge_cells('A1:H1')
-    ws2['A1'] = 'รายละเอียดสินค้าแยกรายเอกสาร'
-    ws2['A1'].font = hf(13); ws2['A1'].fill = fl(BLUE)
-    ws2['A1'].alignment = al('center'); ws2.row_dimensions[1].height = 24
+    # ════════════════════════════════════════════════
+    # SHEET 2: สรุปรวมทุก IFO
+    # ════════════════════════════════════════════════
+    ws2 = wb.create_sheet('สรุปรวม')
 
-    dh = ['วันที่','เลขที่เอกสาร','ชื่อลูกค้า','รายการ','ประเภท','คู่','โหล','ลัง/กระสอบ']
-    for col, h in enumerate(dh, 1):
-        c = ws2.cell(row=2, column=col, value=h)
-        c.font = hf(10); c.fill = fl(BLUE)
-        c.alignment = al('center'); c.border = bdr
-    ws2.row_dimensions[2].height = 20
+    # grand totals
+    grand_ct  = sum(d['_ct']   for d in docs)
+    grand_ft2 = sum(d['_ft2']  for d in docs)
+    grand_ft3 = sum(d['_ft3']  for d in docs)
+    grand_gct = sum(d['_gct']  for d in docs)
+    grand_gft2= sum(d['_gft2'] for d in docs)
+    grand_gft3= sum(d['_gft3'] for d in docs)
 
-    TYPE_LABEL = {'canvas':'ผ้าใบ','foam':'ฟองน้ำ','gift':'ของแถม'}
-    TYPE_COLOR = {'canvas':CANVAS_BG,'foam':FOAM_BG,'gift':GIFT_BG}
-    r2 = 3
+    gc=calc_canvas(grand_ct); gf2=calc_foam200(grand_ft2); gf3=calc_foam212(grand_ft3)
+    ggc=calc_canvas(grand_gct); ggf2=calc_foam200(grand_gft2); ggf3=calc_foam212(grand_gft3)
+
+    merge_write(ws2,1,1,1,8,
+        f'สรุปรวมทุกเอกสาร ({len(docs)} IFO) — {datetime.now().strftime("%d/%m/%Y %H:%M")}',
+        font=hf(13),fill=fl(C_BLUE),align=al())
+    ws2.row_dimensions[1].height = 28
+
+    # grand summary boxes row 3-4
+    r = 3
+    summary_blocks = []
+    if grand_ct:   summary_blocks.append(('ผ้าใบ (ปกติ)',fmt_canvas(gc),C_CANVAS_H))
+    if grand_gct:  summary_blocks.append(('ผ้าใบ (ของแถม)',fmt_canvas(ggc),C_GIFT_H))
+    if grand_ft2:  summary_blocks.append(('ฟองน้ำ 200 (ปกติ)',fmt_foam200(gf2),C_FOAM200_H))
+    if grand_gft2: summary_blocks.append(('ฟองน้ำ 200 (ของแถม)',fmt_foam200(ggf2),C_GIFT_H))
+    if grand_ft3:  summary_blocks.append(('ฟองน้ำ 212/213 (ปกติ)',fmt_foam212(gf3),C_FOAM212_H))
+    if grand_gft3: summary_blocks.append(('ฟองน้ำ 212/213 (ของแถม)',fmt_foam212(ggf3),C_GIFT_H))
+
+    for idx,(label,val,color) in enumerate(summary_blocks):
+        col = 1 + idx*2
+        merge_write(ws2,3,col,3,col+1,label,font=hf(11),fill=fl(color),align=al())
+        merge_write(ws2,4,col,4,col+1,val,font=nf(12,bold=True),fill=fl('F8FAFC'),align=al())
+        ws2.column_dimensions[get_column_letter(col)].width = 14
+        ws2.column_dimensions[get_column_letter(col+1)].width = 14
+    ws2.row_dimensions[3].height = 22
+    ws2.row_dimensions[4].height = 28
+
+    # ── breakdown by subtype ──
+    r = 6
+    merge_write(ws2,r,1,r,8,'รายละเอียดตามชนิดสินค้า (รวมทุก IFO)',
+        font=hf(12),fill=fl(C_BLUE),align=al())
+    ws2.row_dimensions[r].height = 22
+
+    r += 1
+    det_headers = ['ชนิดสินค้า','ประเภท','รวม คู่','โหล','กล่อง/กระสอบ/แพค','เศษโหล','เศษคู่','หน่วย']
+    det_colors  = [C_BLUE]*8
+    for col,(h,color) in enumerate(zip(det_headers,det_colors),1):
+        write(ws2,r,col,h,font=hf(11),fill=fl(color),align=al(),border=bdr)
+    ws2.row_dimensions[r].height = 22
+    r += 1
+
+    # collect breakdown
+    subtype_data = defaultdict(lambda: defaultdict(int))
     for doc in docs:
         for item in doc['items']:
-            doz, rem = divmod(item['qty'], 12)
-            if item['type'] == 'foam':
-                load_txt = foam_calc(item['qty'])['txt']
-            else:
-                cc = canvas_calc(item['qty'])
-                load_txt = f'{cc["lang"]} ลัง' + (f' เศษ {cc["rem"]} คู่' if cc['rem'] else '')
-            vals = [format_th_date(doc['date']), doc['docId'], doc['customer'],
-                    item['desc'], TYPE_LABEL.get(item['type'],''),
-                    item['qty'], f'{doz} โหล' + (f' เศษ {rem}' if rem else ''), load_txt]
-            bg = TYPE_COLOR.get(item['type'],'FFFFFF')
-            for col, val in enumerate(vals, 1):
-                c = ws2.cell(row=r2, column=col, value=val)
-                c.fill = fl(bg); c.font = nf()
-                c.alignment = al('left') if col <= 4 else al('center')
-                c.border = bdr
-            r2 += 1
+            key = (item['subtype'], item['type'], item['gift'])
+            subtype_data[key]['qty'] += item['qty']
 
-    for col, w in enumerate([14,16,28,36,10,10,16,28], 1):
+    # sort: ปกติก่อน → ของแถมทีหลัง, แยกกลุ่ม canvas/foam200/foam212
+    type_order = {'canvas':0,'foam200':1,'foam212':2}
+    sorted_keys = sorted(subtype_data.keys(),
+        key=lambda x: (type_order.get(x[1],9), int(x[2]), x[0]))
+
+    last_gift = None
+    for key in sorted_keys:
+        subtype, ptype, gift = key
+        qty = subtype_data[key]['qty']
+        if qty == 0: continue
+
+        # เว้นบรรทัดก่อนเริ่มของแถม
+        if gift and last_gift == False:
+            ws2.row_dimensions[r].height = 8
+            r += 1
+
+        last_gift = gift
+
+        if ptype == 'canvas':
+            c = calc_canvas(qty)
+            unit = 'กล่อง'; pack_val = c['boxes']; rem_doz = '-'; rem_pair = c['rem'] or '-'
+            color = C_GIFT if gift else C_CANVAS
+        elif ptype == 'foam200':
+            c = calc_foam200(qty)
+            unit = 'กระสอบ'; pack_val = c['sacks']; rem_doz = c['rem_doz'] or '-'
+            rem_pair = c['rem_pairs'] or '-'
+            color = C_GIFT if gift else C_FOAM200
+        else:
+            c = calc_foam212(qty)
+            unit = 'แพค'; pack_val = c['packs']; rem_doz = c['rem_doz'] or '-'
+            rem_pair = c['rem_pairs'] or '-'
+            color = C_GIFT if gift else C_FOAM212
+
+        doz_total = qty // DOZ
+        row_vals = [
+            subtype,
+            'ของแถม' if gift else 'ปกติ',
+            qty, doz_total, pack_val, rem_doz, rem_pair, unit
+        ]
+        for col,val in enumerate(row_vals,1):
+            write(ws2,r,col,val,
+                font=nf(11,bold=(col==1)),
+                fill=fl(color),
+                align=al('left' if col<=2 else 'center'),
+                border=bdr)
+        ws2.row_dimensions[r].height = 20
+        r += 1
+
+    # col widths sheet2
+    for col,w in enumerate([18,10,10,8,16,10,10,10],1):
         ws2.column_dimensions[get_column_letter(col)].width = w
+
+    # ════════════════════════════════════════════════
+    # SHEET 3: รายละเอียดทุกรายการ
+    # ════════════════════════════════════════════════
+    ws3 = wb.create_sheet('รายละเอียด')
+    merge_write(ws3,1,1,1,8,'รายละเอียดสินค้าทุกรายการ',
+        font=hf(13),fill=fl(C_BLUE),align=al())
+    ws3.row_dimensions[1].height = 24
+
+    dh = ['วันที่','เลขที่IFO','ชื่อลูกค้า','รายการสินค้า','ประเภท','คู่','โหล','กล่อง/กระสอบ/แพค']
+    for col,h in enumerate(dh,1):
+        write(ws3,2,col,h,font=hf(10),fill=fl(C_BLUE),align=al(),border=bdr)
+    ws3.row_dimensions[2].height = 20
+
+    TYPE_LABEL = {'canvas':'ผ้าใบ','foam200':'ฟองน้ำ 200','foam212':'ฟองน้ำ 212/213'}
+    TYPE_COLOR = {'canvas':C_CANVAS,'foam200':C_FOAM200,'foam212':C_FOAM212}
+
+    r3 = 3
+    for doc in docs:
+        for item in doc['items']:
+            ptype = item['type']
+            qty = item['qty']
+            doz = qty // DOZ
+            if ptype == 'canvas':
+                c = calc_canvas(qty)
+                load = f"{c['boxes']} กล่อง" + (f" เศษ {c['rem']} คู่" if c['rem'] else '')
+            elif ptype == 'foam200':
+                c = calc_foam200(qty)
+                load = f"{c['sacks']} กระสอบ" + (f" เศษ {c['rem_doz']} โหล" if c['rem_doz'] else '')
+            else:
+                c = calc_foam212(qty)
+                load = f"{c['packs']} แพค" + (f" เศษ {c['rem_doz']} โหล" if c['rem_doz'] else '')
+
+            label = TYPE_LABEL.get(ptype,'อื่นๆ')
+            if item['gift']: label += ' (ของแถม)'
+            color = C_GIFT if item['gift'] else TYPE_COLOR.get(ptype,'FFFFFF')
+
+            row_vals = [th_date(doc['date']),doc['docId'],doc['customer'],
+                        item['desc'],label,qty,doz,load]
+            for col,val in enumerate(row_vals,1):
+                write(ws3,r3,col,val,
+                    font=nf(10),fill=fl(color),
+                    align=al('left' if col<=4 else 'center'),
+                    border=bdr)
+            ws3.row_dimensions[r3].height = 18
+            r3 += 1
+
+    for col,w in enumerate([12,14,24,36,16,8,8,20],1):
+        ws3.column_dimensions[get_column_letter(col)].width = w
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -394,131 +530,76 @@ def build_excel(docs):
 # ── UI ────────────────────────────────────────────────
 uploaded_files = st.file_uploader(
     "📂 ลาก PDF มาวาง หรือคลิกเพื่อเลือกไฟล์",
-    type=['pdf'],
-    accept_multiple_files=True,
+    type=['pdf'], accept_multiple_files=True,
     help="รองรับหลายไฟล์พร้อมกัน"
 )
 
 if uploaded_files:
     docs = []
     errors = []
-
     with st.spinner('🔍 กำลังอ่าน PDF...'):
         for f in uploaded_files:
             try:
-                doc, _ = parse_pdf(f.read())
+                doc = parse_pdf(f.read())
                 doc['_filename'] = f.name
                 docs.append(doc)
             except Exception as e:
-                errors.append(f"{f.name}: {str(e)}")
+                errors.append(f"{f.name}: {e}")
 
     if errors:
-        for e in errors:
-            st.error(f"❌ {e}")
+        for e in errors: st.error(f"❌ {e}")
 
     if docs:
-        # sort by date
         docs.sort(key=lambda x: x['docId'] or '')
 
-        # totals
-        tot_c = tot_f = tot_g = 0
-        for doc in docs:
-            tot_c += sum(x['qty'] for x in doc['items'] if x['type']=='canvas')
-            tot_f += sum(x['qty'] for x in doc['items'] if x['type']=='foam')
-            tot_g += sum(x['qty'] for x in doc['items'] if x['type']=='gift')
-
         # grand summary
-        if len(docs) > 1:
-            ff_ = foam_calc(tot_f); cf_ = canvas_calc(tot_c)
-            st.markdown(f"""
-            <div class="grand-card">
-              <h3>📊 สรุปรวม {len(docs)} เอกสาร</h3>
-              <div style="display:flex;gap:10px;flex-wrap:wrap">
-                <div style="flex:1;min-width:100px;background:rgba(255,255,255,.15);border-radius:8px;padding:10px;text-align:center">
-                  <div style="font-size:11px;opacity:.7;margin-bottom:4px">ผ้าใบ</div>
-                  <div style="font-size:22px;font-weight:700;font-family:monospace">{tot_c}</div>
-                  <div style="font-size:11px;opacity:.75">{cf_['lang']} ลัง</div>
-                </div>
-                <div style="flex:1;min-width:100px;background:rgba(255,255,255,.15);border-radius:8px;padding:10px;text-align:center">
-                  <div style="font-size:11px;opacity:.7;margin-bottom:4px">ฟองน้ำ</div>
-                  <div style="font-size:22px;font-weight:700;font-family:monospace">{tot_f}</div>
-                  <div style="font-size:11px;opacity:.75">{ff_['doz']} โหล<br>{ff_['txt']}</div>
-                </div>
-                <div style="flex:1;min-width:100px;background:rgba(255,255,255,.15);border-radius:8px;padding:10px;text-align:center">
-                  <div style="font-size:11px;opacity:.7;margin-bottom:4px">รวมทั้งสิ้น</div>
-                  <div style="font-size:22px;font-weight:700;font-family:monospace">{tot_c+tot_f+tot_g}</div>
-                  <div style="font-size:11px;opacity:.75">คู่</div>
-                </div>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
+        tot_all = sum(d['_ct']+d['_ft2']+d['_ft3']+d['_gct']+d['_gft2']+d['_gft3'] for d in docs)
+        col1,col2,col3,col4 = st.columns(4)
+        col1.metric("📄 เอกสาร", f"{len(docs)} IFO")
+        col2.metric("🟢 ผ้าใบ", f"{sum(d['_ct']+d['_gct'] for d in docs)} คู่")
+        col3.metric("🔵 ฟองน้ำ 200", f"{sum(d['_ft2']+d['_gft2'] for d in docs)} คู่")
+        col4.metric("🔵 ฟองน้ำ 212/213", f"{sum(d['_ft3']+d['_gft3'] for d in docs)} คู่")
+
+        st.divider()
 
         # per doc
         for doc in docs:
-            ci = [x for x in doc['items'] if x['type']=='canvas']
-            fi = [x for x in doc['items'] if x['type']=='foam']
-            gi = [x for x in doc['items'] if x['type']=='gift']
-            ct = sum(x['qty'] for x in ci)
-            ft = sum(x['qty'] for x in fi)
-            gt = sum(x['qty'] for x in gi)
-            cf_ = canvas_calc(ct); ff_ = foam_calc(ft); gf_ = canvas_calc(gt)
+            with st.expander(f"📄 {doc['docId']} — {doc['customer']} ({th_date(doc['date']) if hasattr(st,'session_state') else doc['date']})", expanded=True):
+                c1,c2,c3 = st.columns(3)
+                c1.write(f"**ลูกค้า:** {doc['customer']}")
+                c2.write(f"**อ.{doc.get('amphoe','')} จ.{doc.get('province','')}**")
+                c3.write(f"**รวม:** {doc['_ct']+doc['_ft2']+doc['_ft3']+doc['_gct']+doc['_gft2']+doc['_gft3']} คู่")
 
-            chips = ''
-            if ct: chips += f'<span class="chip chip-c">ผ้าใบ {ct} คู่</span>'
-            if ft: chips += f'<span class="chip chip-f">ฟองน้ำ {ft} คู่</span>'
-            if gt: chips += f'<span class="chip chip-g">ของแถม {gt} คู่</span>'
+                if doc['_ct']:
+                    c = calc_canvas(doc['_ct'])
+                    st.success(f"🟢 **ผ้าใบ:** {fmt_canvas(c)}")
+                if doc['_ft2']:
+                    c = calc_foam200(doc['_ft2'])
+                    st.info(f"🔵 **ฟองน้ำ 200:** {fmt_foam200(c)}")
+                if doc['_ft3']:
+                    c = calc_foam212(doc['_ft3'])
+                    st.info(f"🔵 **ฟองน้ำ 212/213:** {fmt_foam212(c)}")
+                if doc['_gct'] or doc['_gft2'] or doc['_gft3']:
+                    gift_parts = []
+                    if doc['_gct']:  gift_parts.append(f"ผ้าใบ {fmt_canvas(calc_canvas(doc['_gct']))}")
+                    if doc['_gft2']: gift_parts.append(f"ฟองน้ำ200 {fmt_foam200(calc_foam200(doc['_gft2']))}")
+                    if doc['_gft3']: gift_parts.append(f"ฟองน้ำ212/213 {fmt_foam212(calc_foam212(doc['_gft3']))}")
+                    st.warning(f"🎁 **ของแถม:** {' | '.join(gift_parts)}")
 
-            st.markdown(f"""
-            <div class="doc-card">
-              <div class="doc-title">{doc['docId'] or doc['_filename']}</div>
-              <div class="doc-sub">{format_th_date(doc['date'])} · {doc['customer'] or '—'}</div>
-              <div>{chips}</div>
-            """, unsafe_allow_html=True)
-
-            if ct > 0:
-                st.markdown(f'<div class="type-label lbl-canvas">🟢 ผ้าใบ</div>', unsafe_allow_html=True)
-                col1, col2, col3 = st.columns(3)
-                col1.metric("รวม", f"{ct} คู่")
-                col2.metric("โหล", f"{cf_['doz']} โหล", delta=f"เศษ {cf_['rem']} คู่" if cf_['rem'] else None)
-                col3.metric("ลัง", f"{cf_['lang']} ลัง", delta=f"เศษ {cf_['rem']} คู่" if cf_['rem'] else None)
-
-            if ft > 0:
-                st.markdown(f'<div class="type-label lbl-foam">🔵 ฟองน้ำ</div>', unsafe_allow_html=True)
-                col1, col2, col3 = st.columns(3)
-                col1.metric("รวม", f"{ft} คู่")
-                col2.metric("โหล", f"{ff_['doz']} โหล", delta=f"เศษ {ff_['rp']} คู่" if ff_['rp'] else None)
-                col3.metric("กระสอบ", ff_['txt'])
-
-            if gt > 0:
-                st.markdown(f'<div class="type-label lbl-gift">🎁 ของแถม</div>', unsafe_allow_html=True)
-                col1, col2, col3 = st.columns(3)
-                col1.metric("รวม", f"{gt} คู่")
-                col2.metric("โหล", f"{gf_['doz']} โหล")
-                col3.metric("ลัง", f"{gf_['lang']} ลัง")
-
-            if not doc['items']:
-                st.warning("⚠️ ไม่พบรายการสินค้าในเอกสารนี้")
-
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.markdown("---")
-
-        # download excel
+        # download
         excel_buf = build_excel(docs)
         fname = f"IFO_โหลดสินค้า_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
         st.download_button(
             label="📥 ดาวน์โหลด Excel",
-            data=excel_buf,
-            file_name=fname,
+            data=excel_buf, file_name=fname,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            type="primary"
+            use_container_width=True, type="primary"
         )
 
-else:
-    st.markdown("""
-    <div style="text-align:center;padding:48px 20px;color:#94A3B8">
-      <div style="font-size:48px;margin-bottom:12px">📄</div>
-      <div style="font-size:15px;font-weight:600;color:#64748B">ลาก PDF มาวางที่นี่</div>
-      <div style="font-size:13px;margin-top:6px">รองรับหลายไฟล์พร้อมกัน</div>
-    </div>
-    """, unsafe_allow_html=True)
+def th_date(s):
+    if not s: return ''
+    try:
+        y,m,d = s.split('-')
+        mn=['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+        return f"{int(d)} {mn[int(m)]} {int(y)+543}"
+    except: return s

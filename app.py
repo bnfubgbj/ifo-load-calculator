@@ -212,22 +212,23 @@ def build_excel(docs):
     ws['A2'].font = nf(); ws['A2'].alignment = al('right')
     ws.row_dimensions[2].height = 16
 
-    # Row 3: group headers
-    ws.merge_cells('A3:C3')
-    ws.merge_cells('D3:E3')
-    ws.merge_cells('F3:H3')
-    ws.merge_cells('I3:I3')
-    ws.merge_cells('J3:J3')
+    # Row 3: group headers — เขียนค่าใน cell แรกของแต่ละกลุ่ม แล้วค่อย merge
     grp_hdrs = {1:'', 4:'ผ้าใบ', 6:'ฟองน้ำ', 9:'ของแถม', 10:'รวม (คู่)'}
     grp_fills = {1:BLUE, 4:'2D6A27', 6:'1E3A8A', 9:'78350F', 10:BLUE}
-    for col in range(1, NCOLS+1):
-        c = ws.cell(row=3, column=col)
-        for k in sorted(grp_hdrs.keys(), reverse=True):
-            if col >= k:
-                c.value = grp_hdrs[k] if col == k else ''
-                c.fill = fl(grp_fills[k])
-                break
-        c.font = hf(11); c.alignment = al('center'); c.border = bdr
+    grp_range = {1:(1,3), 4:(4,5), 6:(6,8), 9:(9,9), 10:(10,10)}
+
+    for start_col, (sc, ec) in grp_range.items():
+        # เขียนค่าใน cell แรกก่อน merge
+        c = ws.cell(row=3, column=sc, value=grp_hdrs[start_col])
+        c.font = hf(11); c.alignment = al('center')
+        c.fill = fl(grp_fills[start_col]); c.border = bdr
+        # merge ถ้ามีหลาย col
+        if sc != ec:
+            ws.merge_cells(start_row=3, start_column=sc, end_row=3, end_column=ec)
+        # ใส่ style ให้ทุก cell ในกลุ่ม
+        for col in range(sc, ec+1):
+            c = ws.cell(row=3, column=col)
+            c.fill = fl(grp_fills[start_col]); c.border = bdr
     ws.row_dimensions[3].height = 20
 
     # Row 4: sub headers

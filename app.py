@@ -133,9 +133,10 @@ def parse_pdf(file_bytes):
         if y > 2500: y -= 543
         result['date'] = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
 
-    # customer — หาจาก "ชอื ลูกค้า : ..." หรือ "ชื่อลูกค้า : ..."
+    # customer — บรรทัด "ชอื ลกู คา้ : <ชื่อ>" หรือ "ชื่อลูกค้า : <ชื่อ>"
     for line in lines[:20]:
-        m = re.search(r'ช(?:อื|ื่อ)\s*ลู?ก\s*ค้?า\s*:\s*(.+?)(?:\s+วน?ั\s*ท|$)', line)
+        # match ทั้ง "ชอื ลกู คา้" และ "ชื่อลูกค้า"
+        m = re.search(r'ช[อื]{1,2}\s*ล[กู]{1,2}\s*ค[า้]{1,2}\s*:\s*(.+?)(?:\s+ว[นั]{1,2}\s*ท|$)', line)
         if m:
             name = m.group(1).strip()
             if len(name) > 1:

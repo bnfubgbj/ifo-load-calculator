@@ -230,19 +230,7 @@ def build_excel(docs):
 
     # ── aggregate data ──
     for doc in docs:
-        doc['_canvas']     = [x for x in doc['items'] if x['type']=='canvas' and not x['gift']]
-        doc['_foam200']    = [x for x in doc['items'] if x['type']=='foam200' and not x['gift']]
-        doc['_foam212']    = [x for x in doc['items'] if x['type']=='foam212' and not x['gift']]
-        doc['_gift_c']     = [x for x in doc['items'] if x['type']=='canvas' and x['gift']]
-        doc['_gift_f200']  = [x for x in doc['items'] if x['type']=='foam200' and x['gift']]
-        doc['_gift_f212']  = [x for x in doc['items'] if x['type']=='foam212' and x['gift']]
-
-        doc['_ct']   = sum(x['qty'] for x in doc['_canvas'])
-        doc['_ft2']  = sum(x['qty'] for x in doc['_foam200'])
-        doc['_ft3']  = sum(x['qty'] for x in doc['_foam212'])
-        doc['_gct']  = sum(x['qty'] for x in doc['_gift_c'])
-        doc['_gft2'] = sum(x['qty'] for x in doc['_gift_f200'])
-        doc['_gft3'] = sum(x['qty'] for x in doc['_gift_f212'])
+        _aggregate(doc)
 
     def th_date(s):
         if not s: return ''
@@ -551,6 +539,8 @@ if uploaded_files:
 
     if docs:
         docs.sort(key=lambda x: x['docId'] or '')
+        for doc in docs:
+            _aggregate(doc)
 
         # grand summary
         tot_all = sum(d['_ct']+d['_ft2']+d['_ft3']+d['_gct']+d['_gft2']+d['_gft3'] for d in docs)

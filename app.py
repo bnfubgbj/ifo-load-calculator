@@ -30,7 +30,7 @@ st.markdown("""
 # ── CONSTANTS ─────────────────────────────────────────
 BOX_CANVAS   = 12   # ผ้าใบ: 12 คู่/กล่อง
 SACK_FOAM200 = 120  # ฟองน้ำ 200: 120 คู่/กระสอบ
-PACK_FOAM212 = 24   # ฟองน้ำ 212/213: 24 คู่/แพค
+PACK_FOAM212 = 24   # ฟองน้ำ 212/213: 24 คู่/กล่อง
 DOZ          = 12   # 1 โหล = 12 คู่
 
 # ── TEXT HELPERS ──────────────────────────────────────
@@ -219,7 +219,7 @@ def fmt_foam200(f):
     return s
 
 def fmt_foam212(f):
-    s = f"{f['qty']} คู่ / {f['packs']} แพค"
+    s = f"{f['qty']} คู่ / {f['packs']} กล่อง"
     if f['rem_doz']: s += f" เศษ {f['rem_doz']} โหล"
     return s
 
@@ -288,7 +288,7 @@ def build_excel(docs):
     # col layout: A=วันที่ B=IFO C=ลูกค้า D=อ. E=จ.
     # F=ผ้าใบคู่ G=กล่อง H=เศษ  I=ของแถมผ้าใบคู่ J=กล่อง K=เศษ
     # L=ฟองน้ำ200คู่ M=โหล N=กระสอบ O=เศษโหล  P=ของแถม200คู่ Q=กระสอบ R=เศษโหล
-    # S=ฟองน้ำ212/213คู่ T=แพค U=เศษโหล  V=ของแถม212คู่ W=แพค
+    # S=ฟองน้ำ212/213คู่ T=กล่อง U=เศษโหล  V=ของแถม212คู่ W=กล่อง
     # X=รวม
     NCOLS = 24
 
@@ -308,7 +308,7 @@ def build_excel(docs):
         (1,5,'ข้อมูลเอกสาร',C_BLUE),
         (6,11,'ผ้าใบ (12 คู่/กล่อง)',C_CANVAS_H),
         (12,18,'ฟองน้ำ 200 (120 คู่/กระสอบ)',C_FOAM200_H),
-        (19,23,'ฟองน้ำ 212/213 (24 คู่/แพค)',C_FOAM212_H),
+        (19,23,'ฟองน้ำ 212/213 (24 คู่/กล่อง)',C_FOAM212_H),
         (24,24,'รวม',C_BLUE),
     ]
     for sc,ec,label,color in groups:
@@ -320,7 +320,7 @@ def build_excel(docs):
     sub = ['วันที่','เลขที่IFO','ชื่อลูกค้า','อำเภอ','จังหวัด',
            'คู่','กล่อง','เศษคู่','ของแถม คู่','กล่อง','เศษคู่',
            'คู่','โหล','กระสอบ','เศษโหล','ของแถม คู่','กระสอบ','เศษโหล',
-           'คู่','แพค','เศษโหล','ของแถม คู่','แพค',
+           'คู่','กล่อง','เศษโหล','ของแถม คู่','กล่อง',
            'รวมคู่']
     sub_colors = [C_BLUE]*5 + [C_CANVAS_H]*6 + [C_FOAM200_H]*7 + [C_FOAM212_H]*5 + [C_BLUE]
     for col,(h,color) in enumerate(zip(sub,sub_colors),1):
@@ -434,7 +434,7 @@ def build_excel(docs):
     ws2.row_dimensions[r].height = 22
 
     r += 1
-    det_headers = ['ชนิดสินค้า','ประเภท','รวม คู่','โหล','กล่อง/กระสอบ/แพค','เศษโหล','เศษคู่','หน่วย']
+    det_headers = ['ชนิดสินค้า','ประเภท','รวม คู่','โหล','กล่อง/กระสอบ/กล่อง','เศษโหล','เศษคู่','หน่วย']
     det_colors  = [C_BLUE]*8
     for col,(h,color) in enumerate(zip(det_headers,det_colors),1):
         write(ws2,r,col,h,font=hf(11),fill=fl(color),align=al(),border=bdr)
@@ -477,7 +477,7 @@ def build_excel(docs):
             color = C_GIFT if gift else C_FOAM200
         else:
             c = calc_foam212(qty)
-            unit = 'แพค'; pack_val = c['packs']; rem_doz = c['rem_doz'] or '-'
+            unit = 'กล่อง'; pack_val = c['packs']; rem_doz = c['rem_doz'] or '-'
             rem_pair = c['rem_pairs'] or '-'
             color = C_GIFT if gift else C_FOAM212
 
@@ -508,7 +508,7 @@ def build_excel(docs):
         font=hf(13),fill=fl(C_BLUE),align=al())
     ws3.row_dimensions[1].height = 24
 
-    dh = ['วันที่','เลขที่IFO','ชื่อลูกค้า','รายการสินค้า','ประเภท','คู่','โหล','กล่อง/กระสอบ/แพค']
+    dh = ['วันที่','เลขที่IFO','ชื่อลูกค้า','รายการสินค้า','ประเภท','คู่','โหล','กล่อง/กระสอบ/กล่อง']
     for col,h in enumerate(dh,1):
         write(ws3,2,col,h,font=hf(10),fill=fl(C_BLUE),align=al(),border=bdr)
     ws3.row_dimensions[2].height = 20
@@ -530,7 +530,7 @@ def build_excel(docs):
                 load = f"{c['sacks']} กระสอบ" + (f" เศษ {c['rem_doz']} โหล" if c['rem_doz'] else '')
             else:
                 c = calc_foam212(qty)
-                load = f"{c['packs']} แพค" + (f" เศษ {c['rem_doz']} โหล" if c['rem_doz'] else '')
+                load = f"{c['packs']} กล่อง" + (f" เศษ {c['rem_doz']} โหล" if c['rem_doz'] else '')
 
             label = TYPE_LABEL.get(ptype,'อื่นๆ')
             if item['gift']: label += ' (ของแถม)'

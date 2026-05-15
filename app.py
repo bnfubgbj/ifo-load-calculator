@@ -95,12 +95,31 @@ MONTH_MAP = {
     'ก.ย.':'09','ต.ค.':'10','พ.ย.':'11','ธ.ค.':'12'
 }
 
-def parse_pdf(file_bytes):
-    result = {'docId':'', 'date':'', 'customer':'', 'items':[]}
-    text = ''
+def clean_cid(s):
+    s = re.sub(r'\(cid:\d+\)', '', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+def extract_lines(file_bytes):
+    """ใช้ extract_words จัดกลุ่มตาม y-position เพื่อให้ได้บรรทัดที่ถูกต้อง"""
+    lines = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
-            text += (page.extract_text() or '') + '\n'
+            words = page.extract_words(x_tolerance=3, y_tolerance=3)
+            rows = {}
+            for w in words:
+                y = round(w['top'] / 5) * 5
+                rows.setdefault(y, []).append(w['text'])
+            for y in sorted(rows.keys()):
+                line = clean_cid(' '.join(rows[y]))
+                if line:
+                    lines.append(line)
+    return lines
+
+def parse_pdf(file_bytes):
+    result = {'docId':'', 'date':'', 'customer':'', 'items':[]}
+    lines = extract_lines(file_bytes)
+    text = '\n'.join(lines)
 
     # docId
     m = re.search(r'IFO-\d+', text)
@@ -114,18 +133,11 @@ def parse_pdf(file_bytes):
         if y > 2500: y -= 543
         result['date'] = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
 
-    lines = [l.strip() for l in text.split('\n') if l.strip()]
-
-    # customer — ดึงจากบรรทัดที่มี "ชื่อลูกค้า" หรือ "ชอื...ลกู...คา"
-    for line in lines[:15]:
-        # ลบ cid artifacts ก่อน
-        clean_line = re.sub(r'\(cid:\d+\)', '', line)
-        clean_line = re.sub(r'\s+', ' ', clean_line).strip()
-        # หา pattern ชื่อลูกค้า : <ชื่อ>
-        m = re.search(r'ชื่?อ\s*ลู?กค้?า\s*:\s*(.+?)(?:\s+วัน\s*ที่|\s+วัน\s*ท|$)', clean_line)
+    # customer — หาจาก "ชอื ลูกค้า : ..." หรือ "ชื่อลูกค้า : ..."
+    for line in lines[:20]:
+        m = re.search(r'ช(?:อื|ื่อ)\s*ลู?ก\s*ค้?า\s*:\s*(.+?)(?:\s+วน?ั\s*ท|$)', line)
         if m:
             name = m.group(1).strip()
-            name = re.sub(r'\s+', ' ', name).strip()
             if len(name) > 1:
                 result['customer'] = name
                 break

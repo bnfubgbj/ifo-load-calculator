@@ -585,7 +585,16 @@ if uploaded_files:
         tot_all = sum(d['_ct']+d['_ft2']+d['_ft3']+d['_gct']+d['_gft2']+d['_gft3'] for d in docs)
         col1,col2,col3,col4 = st.columns(4)
         col1.metric("📄 เอกสาร", f"{len(docs)} IFO")
-        col2.metric("🟢 ผ้าใบ", f"{sum(d['_ct']+d['_gct'] for d in docs)} คู่")
+
+        # รวมผ้าใบแยกตามรุ่น
+        from collections import defaultdict
+        canvas_by_sub = defaultdict(int)
+        for d in docs:
+            for item in d['items']:
+                if item['type'] == 'canvas':
+                    canvas_by_sub[item['subtype']] += item['qty']
+        canvas_summary = ' | '.join(f"{k} {v} คู่" for k,v in sorted(canvas_by_sub.items()))
+        col2.metric("🟢 ผ้าใบ", canvas_summary or "0 คู่")
         col3.metric("🔵 ฟองน้ำ 200", f"{sum(d['_ft2']+d['_gft2'] for d in docs)} คู่")
         col4.metric("🔵 ฟองน้ำ 212/213", f"{sum(d['_ft3']+d['_gft3'] for d in docs)} คู่")
 

@@ -177,7 +177,7 @@ def build_excel(docs):
     bdr = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     def hf(sz=11): return Font(name='TH Sarabun New', bold=True, color=WHITE, size=sz)
-    def cf(bold=False, sz=10): return Font(name='TH Sarabun New', bold=bold, size=sz)
+    def nf(bold=False, sz=10): return Font(name='TH Sarabun New', bold=bold, size=sz)
     def fl(c): return PatternFill('solid', start_color=c, end_color=c)
     def al(h='left'): return Alignment(horizontal=h, vertical='center', wrap_text=True)
 
@@ -191,7 +191,7 @@ def build_excel(docs):
 
     ws.merge_cells('A2:G2')
     ws['A2'] = f'พิมพ์: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
-    ws['A2'].font = cf(); ws['A2'].alignment = al('right')
+    ws['A2'].font = nf(); ws['A2'].alignment = al('right')
     ws.row_dimensions[2].height = 16
 
     hdrs = ['วันที่','เลขที่เอกสาร','ชื่อลูกค้า','ผ้าใบ (คู่/ลัง)','ฟองน้ำ (คู่/โหล/กระสอบ)','ของแถม (คู่/ลัง)','รวม (คู่)']
@@ -226,7 +226,7 @@ def build_excel(docs):
                 GIFT_BG   if gt else bg, SUM_BG]
         for col, (val, bg2) in enumerate(zip(vals, bgs), 1):
             c = ws.cell(row=r, column=col, value=val)
-            c.fill = fl(bg2); c.font = cf(bold=(col==7))
+            c.fill = fl(bg2); c.font = nf(bold=(col==7))
             c.alignment = al('left') if col <= 3 else al('center')
             c.border = bdr
         ws.row_dimensions[r].height = 36
@@ -280,7 +280,7 @@ def build_excel(docs):
             bg = TYPE_COLOR.get(item['type'],'FFFFFF')
             for col, val in enumerate(vals, 1):
                 c = ws2.cell(row=r2, column=col, value=val)
-                c.fill = fl(bg); c.font = cf()
+                c.fill = fl(bg); c.font = nf()
                 c.alignment = al('left') if col <= 4 else al('center')
                 c.border = bdr
             r2 += 1

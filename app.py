@@ -114,31 +114,47 @@ def parse_pdf(file_bytes):
         if y > 2500: y -= 543
         result['date'] = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
 
-    # customer — ดึงชื่อลูกค้าจาก PDF โดยหาจาก keyword แล้วดึงเฉพาะชื่อ
     lines = [l.strip() for l in text.split('\n') if l.strip()]
 
-    # วิธีที่ 1: หาบรรทัดที่มี keyword ชื่อคน/ร้าน แล้วดึงเฉพาะส่วนชื่อ
-    cust_keywords = ['ร้าน','น.ส.','นาย','นาง','หจก','บจก','ห้าง','บริษัท']
-    for line in lines[:50]:
-        for kw in cust_keywords:
-            if kw in line:
-                # ตัดข้อมูลที่ไม่เกี่ยวออก เช่น วันที่ เลขที่
-                clean = re.sub(r'ชื่อ.*?:|รหัส.*?:|วันที่.*?:|เลขที่.*?:', '', line)
-                clean = re.sub(r'\d{2}/\d{2}/\d{4}|\d{4}-\d{2}-\d{2}', '', clean)
-                clean = clean.strip()
-                if len(clean) > 2:
-                    result['customer'] = clean
-                    break
-        if result['customer']:
+    # customer — หาจาก address บรรทัดแรกของ PDF (ก่อนบรรทัดที่มี บริษัท นันยาง)
+    # PDF layout: บรรทัดแรก = ที่อยู่ลูกค้า, ถัดไป = ที่อยู่บริษัท
+    # ลูกค้า IFO-031337: พรพิมล, IFO-031338: น.ส.วาสนา, IFO-031339: ร้านพิษฐิ
+
+    # วิธีที่ 1: หาจาก "ชื่อลูกค้า :" หรือบรรทัดที่อยู่ต้นๆ ก่อน 99-105 ถนน
+    nanyang_line = -1
+    for i, line in enumerate(lines[:30]):
+        if '99-105' in line or 'สีพระยา' in line or 'นันยางมาร์' in line:
+            nanyang_line = i
             break
 
-    # วิธีที่ 2: fallback หาชื่อสั้นๆ ภาษาไทยล้วน ไม่มีตัวเลข
+    if nanyang_line > 0:
+        # ดึงบรรทัดก่อน nanyang — น่าจะเป็นที่อยู่/ชื่อลูกค้า
+        addr_line = lines[0] if nanyang_line >= 1 else ''
+        # ตัดเอาเฉพาะส่วนชื่อ/ร้าน ตัดเลขที่อยู่และเบอร์โทรออก
+        clean = re.sub(r'\d{1,4}/\d+|หมู่ที่?\s*\d+|ถ\..*|ต\..*|อ\..*|จ\..*|โทร.*|\d{9,}', '', addr_line)
+        clean = clean.strip().strip(',').strip()
+        if len(clean) > 2:
+            result['customer'] = clean
+
+    # วิธีที่ 2: หาบรรทัดที่มี keyword ชื่อคน/ร้าน
     if not result['customer']:
+        cust_keywords = ['ร้าน','น.ส.','นาย','นาง','หจก','บจก','ห้าง']
         for line in lines[:30]:
-            if (re.match(r'^[ก-๙\s\.\(\)/]{3,25}$', line)
-                    and 'IFO' not in line
-                    and 'บริษัท' not in line
-                    and 'นันยาง' not in line
+            for kw in cust_keywords:
+                if kw in line and 'นันยาง' not in line:
+                    clean = re.sub(r'\d{1,4}/\d+|หมู่.*|ถ\..*|โทร.*|\d{9,}', '', line)
+                    clean = clean.strip()
+                    if len(clean) > 2:
+                        result['customer'] = clean
+                        break
+            if result['customer']:
+                break
+
+    # วิธีที่ 3: fallback ชื่อสั้นภาษาไทย
+    if not result['customer']:
+        for line in lines[:20]:
+            if (re.match(r'^[ก-๙\s]{3,20}$', line)
+                    and 'บริษัท' not in line and 'นันยาง' not in line
                     and not re.search(r'\d', line)):
                 result['customer'] = line
                 break
@@ -232,7 +248,7 @@ def build_excel(docs):
     ws.row_dimensions[3].height = 20
 
     # Row 4: sub headers
-    sub_hdrs = ['วันที่','เลขที่เอกสาร','ชื่อลูกค้า','คู่','ลัง','คู่','โหล','กระสอบ','คู่','รวม (คู่)']
+    sub_hdrs = ['วันที่','เลขที่เอกสาร','ชื่อลูกค้า','คู่','ลัง (12คู่)','คู่','โหล','กระสอบใหญ่ (10โหล)','คู่','รวม (คู่)']
     sub_fills = [BLUE,BLUE,BLUE,'2D6A27','2D6A27','1E3A8A','1E3A8A','1E3A8A','78350F',BLUE]
     for col, (h, bg) in enumerate(zip(sub_hdrs, sub_fills), 1):
         c = ws.cell(row=4, column=col, value=h)
@@ -252,14 +268,11 @@ def build_excel(docs):
         cf_ = canvas_calc(ct); ff_ = foam_calc(ft); gf_ = canvas_calc(gt)
         tot_c += ct; tot_f += ft; tot_g += gt
 
-        rem_txt = f'เศษ {cf_["rem"]} คู่' if cf_['rem'] else ''
-        sack_txt = ff_['txt'] if ft else '-'
-
         bg = 'F7FAFB' if i % 2 == 0 else 'FFFFFF'
         row_vals = [
             format_th_date(doc['date']), doc['docId'], doc['customer'],
-            ct if ct else '-', f'{cf_["lang"]} ลัง' + (f' ({rem_txt})' if rem_txt else '') if ct else '-',
-            ft if ft else '-', f'{ff_["doz"]} โหล' if ft else '-', sack_txt,
+            ct if ct else '-', cf_['lang'] if ct else '-',
+            ft if ft else '-', ff_['doz'] if ft else '-', ff_['big'] if ft else '-',
             gt if gt else '-',
             ct+ft+gt
         ]
@@ -278,10 +291,10 @@ def build_excel(docs):
     sum_data = {
         1: 'รวมทั้งหมด',
         4: tot_c if tot_c else '-',
-        5: f'{cf_t["lang"]} ลัง',
+        5: cf_t['lang'] if tot_c else '-',
         6: tot_f if tot_f else '-',
-        7: f'{ff_t["doz"]} โหล',
-        8: ff_t["txt"] if tot_f else '-',
+        7: ff_t['doz'] if tot_f else '-',
+        8: ff_t['big'] if tot_f else '-',
         9: tot_g if tot_g else '-',
         10: tot_c+tot_f+tot_g
     }
@@ -367,7 +380,7 @@ if uploaded_files:
 
     if docs:
         # sort by date
-        docs.sort(key=lambda x: x['date'] or '')
+        docs.sort(key=lambda x: x['docId'] or '')
 
         # totals
         tot_c = tot_f = tot_g = 0

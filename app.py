@@ -701,10 +701,13 @@ with col_clear:
 if uploaded_files:
     docs = []
     errors = []
+    st.write(f"📄 รับไฟล์แล้ว {len(uploaded_files)} ไฟล์ กำลังประมวลผล...")
     with st.spinner('🔍 กำลังอ่าน PDF...'):
         for f in uploaded_files:
             try:
+                st.write(f"⏳ กำลังอ่าน {f.name}...")
                 results = parse_pdf(f.read())
+                st.write(f"✅ {f.name} → พบ {len(results) if isinstance(results,list) else 1} IFO")
                 if isinstance(results, list):
                     for doc in results:
                         doc['_filename'] = f.name
@@ -713,7 +716,10 @@ if uploaded_files:
                     results['_filename'] = f.name
                     docs.append(results)
             except Exception as e:
+                import traceback
                 errors.append(f"{f.name}: {e}")
+                st.error(f"❌ {f.name}: {e}")
+                st.code(traceback.format_exc())
 
     if errors:
         for e in errors: st.error(f"❌ {e}")

@@ -160,25 +160,16 @@ def parse_one_doc(lines):
     return result
 
 def parse_pdf(file_bytes):
-    """Parse PDF แยกตามหน้า — รองรับทั้ง single และ multi-IFO per file"""
+    """Parse PDF — ใช้ extract_text (เร็วกว่า extract_words มาก)"""
     pages_lines = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
-            words = page.extract_words(x_tolerance=3, y_tolerance=3)
-            rows = {}
-            for w in words:
-                y = round(w['top']/5)*5
-                rows.setdefault(y,[]).append(w['text'])
+            txt = page.extract_text() or ''
             page_l = []
-            for y in sorted(rows):
-                raw = ' '.join(rows[y])
-                raw = re.sub(r'\(cid:\d+\)', '', raw)
-                l = re.sub(r'\s+', ' ', raw).strip()
-                if l: page_l.append(l)
-            if not page_l:
-                txt = page.extract_text() or ''
-                page_l = [re.sub(r'\s+',' ',re.sub(r'\(cid:\d+\)','',ln)).strip()
-                          for ln in txt.split('\n') if ln.strip()]
+            for ln in txt.split('\n'):
+                ln = re.sub(r'\(cid:\d+\)', '', ln)
+                ln = re.sub(r'\s+', ' ', ln).strip()
+                if ln: page_l.append(ln)
             pages_lines.append(page_l)
 
     if not pages_lines: return []

@@ -171,7 +171,10 @@ def parse_pdf(file_bytes):
                 rows.setdefault(y,[]).append(w['text'])
             page_l = []
             for y in sorted(rows):
-                l = clean_cid(' '.join(rows[y]))
+                raw = ' '.join(rows[y])
+                # ลบ cid ก่อน join เลย
+                raw = re.sub(r'\(cid:\d+\)', '', raw)
+                l = re.sub(r'\s+', ' ', raw).strip()
                 if l: page_l.append(l)
             # fallback: ถ้าไม่ได้จาก words ให้ลอง extract_text
             if not page_l:

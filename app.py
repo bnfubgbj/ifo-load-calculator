@@ -173,13 +173,17 @@ def parse_pdf(file_bytes):
             for y in sorted(rows):
                 l = clean_cid(' '.join(rows[y]))
                 if l: page_l.append(l)
+            # fallback: ถ้าไม่ได้จาก words ให้ลอง extract_text
+            if not page_l:
+                txt = page.extract_text() or ''
+                page_l = [clean_cid(l) for l in txt.split('\n') if l.strip()]
             pages_lines.append(page_l)
 
     if not pages_lines: return []
 
-    # หา IFO id ของแต่ละหน้า
+    # หา IFO id ของแต่ละหน้า — รองรับทั้ง "IFO-031337" และ "เลขที. : IFO-031398"
     def get_ifo(lines):
-        for l in lines[:8]:
+        for l in lines[:10]:
             m = re.search(r'IFO-\d+', l)
             if m: return m.group()
         return None
@@ -707,7 +711,21 @@ if uploaded_files:
             try:
                 st.write(f"⏳ กำลังอ่าน {f.name}...")
                 results = parse_pdf(f.read())
-                st.write(f"✅ {f.name} → พบ {len(results) if isinstance(results,list) else 1} IFO")
+                count = len(results) if isinstance(results,list) else (1 if results else 0)
+                st.write(f"✅ {f.name} → พบ {count} IFO")
+                if count == 0:
+                    # debug: แสดง lines จริงๆ
+                    import pdfplumber, io as _io
+                    fb = f.getvalue() if hasattr(f,'getvalue') else open(f.name,'rb').read()
+                    with pdfplumber.open(_io.BytesIO(fb)) as _pdf:
+                        _page = _pdf.pages[0]
+                        _words = _page.extract_words(x_tolerance=3, y_tolerance=3)
+                        _rows = {}
+                        for _w in _words:
+                            _y = round(_w['top']/5)*5
+                            _rows.setdefault(_y,[]).append(_w['text'])
+                        _lines = [' '.join(_rows[_y]) for _y in sorted(_rows)][:10]
+                    st.code('\n'.join(_lines))
                 if isinstance(results, list):
                     for doc in results:
                         doc['_filename'] = f.name

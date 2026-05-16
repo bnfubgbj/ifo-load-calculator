@@ -93,21 +93,25 @@ def parse_pdf(file_bytes):
             if ma: doc['amphoe'] = re.sub(r'\s*จ$','',re.sub(r'\d+.*','',ma.group(1)).strip()).strip()
             if doc['province']: break
 
-        # items
+        # items — รองรับทั้ง extract_text (บรรทัดยาว) และ extract_words
         seen = set()
-        for line in lines:
-            if 'Z0001' in line or 'มัดจำ' in line: continue
-            m = re.search(r'(\d{9})\s+(.+?)\s+(\d+)\s+คู่', line)
-            if m:
-                bc, desc_raw, qty = m.group(1), m.group(2).strip(), int(m.group(3))
-                if qty <= 0: continue
-                key = (bc, qty)
-                if key in seen: continue
-                seen.add(key)
-                desc = re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$','',desc_raw).strip()
-                ptype = detect_type(bc)
-                subtype = get_subtype(bc, desc)
-                doc['items'].append({'desc':desc,'type':ptype,'subtype':subtype,'qty':qty,'gift':False})
+        # แยก items จาก full_text โดยหา barcode 9 หลักตามด้วยจำนวนคู่
+        for m in re.finditer(r'(\d{9})\s+(.+?)\s+(\d+)\s+คู่', full_text):
+            bc, desc_raw, qty = m.group(1), m.group(2).strip(), int(m.group(3))
+            if qty <= 0: continue
+            if 'Z0001' in bc: continue
+            # กรองเฉพาะ barcode สินค้าจริง (ขึ้นต้นด้วย 11 หรือ 12)
+            if not re.match(r'^(11|12)', bc): continue
+            key = (bc, qty)
+            if key in seen: continue
+            seen.add(key)
+            # ตัดตัวเลขราคาท้ายออก
+            desc = re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$','',desc_raw).strip()
+            # ตัดเลขลำดับหน้าถ้ามี
+            desc = re.sub(r'^\d+\s+','',desc).strip()
+            ptype = detect_type(bc)
+            subtype = get_subtype(bc, desc)
+            doc['items'].append({'desc':desc,'type':ptype,'subtype':subtype,'qty':qty,'gift':False})
 
         if doc['items']:
             docs.append(doc)

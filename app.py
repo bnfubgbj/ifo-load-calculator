@@ -692,7 +692,6 @@ with col_up:
 with col_clear:
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🗑️ ล้างข้อมูล", use_container_width=True):
-        st.session_state['uploader'] = []
         st.rerun()
 
 if uploaded_files:

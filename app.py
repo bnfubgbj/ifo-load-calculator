@@ -120,12 +120,13 @@ def parse_pdf(file_bytes):
         # items — รองรับทั้ง extract_text (บรรทัดยาว) และ extract_words
         seen = set()
         # แยก items จาก full_text โดยหา barcode 9 หลักตามด้วยจำนวนคู่
-        for m in re.finditer(r'(\d{9})\s+(.+?)\s+(\d+)\s+คู่', full_text):
-            bc, desc_raw, qty = m.group(1), m.group(2).strip(), int(m.group(3))
-            if qty <= 0: continue
+        # หา items โดย match barcode + desc + qty ทีละรายการ
+        # format: <barcode9หลัก> <desc> <qty> คู่ <ราคา>
+        item_pattern = re.compile(r'(?<![\d])((1[12]\d{7}))\s+(.+?)\s+(\d{1,4})\s+คู่')
+        for m in item_pattern.finditer(full_text):
+            bc, desc_raw, qty = m.group(1), m.group(3).strip(), int(m.group(4))
+            if qty <= 0 or qty > 9999: continue
             if 'Z0001' in bc: continue
-            # กรองเฉพาะ barcode สินค้าจริง (ขึ้นต้นด้วย 11 หรือ 12)
-            if not re.match(r'^(11|12)', bc): continue
             key = (bc, qty)
             if key in seen: continue
             seen.add(key)

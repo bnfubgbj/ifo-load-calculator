@@ -114,36 +114,26 @@ MONTH_MAP = {'ม.ค.':'01','ก.พ.':'02','มี.ค.':'03','เม.ย.':'0
              'พ.ค.':'05','มิ.ย.':'06','ก.ค.':'07','ส.ค.':'08',
              'ก.ย.':'09','ต.ค.':'10','พ.ย.':'11','ธ.ค.':'12'}
 
-def parse_pdf(file_bytes):
+def parse_one_doc(lines):
     result = {'docId':'','date':'','customer':'','province':'','amphoe':'','items':[]}
-    lines = extract_lines(file_bytes)
-    text = '\n'.join(lines)
-
-    # docId
-    m = re.search(r'IFO-\d+', text)
-    if m: result['docId'] = m.group()
-
-    # date
+    for line in lines[:5]:
+        m = re.search(r'IFO-\d+', line)
+        if m: result['docId'] = m.group(); break
     pattern = r'(\d{1,2})\s+(' + '|'.join(re.escape(k) for k in MONTH_MAP) + r')\s+(\d{4})'
-    m = re.search(pattern, text)
-    if m:
-        d,mo,y = m.group(1),m.group(2),int(m.group(3))
-        if y > 2500: y -= 543
-        result['date'] = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
-
-    # customer — line 8 รูปแบบ "ชอื ลกู คา้ : <ชื่อ>"
     for line in lines[:15]:
-        # match "ชอื ลกู คา้ :" หรือ "ชื่อลูกค้า :"
+        m = re.search(pattern, line)
+        if m:
+            d,mo,y = m.group(1),m.group(2),int(m.group(3))
+            if y > 2500: y -= 543
+            result['date'] = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
+            break
+    for line in lines[:20]:
         m = re.search(r'ช(?:อื|ื่อ)\s+ล(?:กู|ูก)\s+ค(?:า้|้า)\s*:\s*(.+?)(?:\s+ว(?:นั|ัน)\s*ท|$)', line)
         if not m:
             m = re.search(r'ช\S*\s+ล\S*\s+ค\S*\s*:\s*(.+?)(?:\s+ว\S*\s+ท|$)', line)
         if m:
             name = normalize_thai(m.group(1).strip())
-            if len(name) > 1:
-                result['customer'] = name
-                break
-
-    # province & amphoe
+            if len(name) > 1: result['customer'] = name; break
     for line in lines[:15]:
         mp = re.search(r'จ\.([ก-๙]+(?:\s+[ก-๙]+)?)', line)
         ma = re.search(r'อ\.([ก-๙]+(?:\s+[ก-๙]+)?)(?:\s+จ\.)?', line)
@@ -152,24 +142,69 @@ def parse_pdf(file_bytes):
             amp = normalize_thai(re.sub(r'\d+.*','',ma.group(1)).strip())
             result['amphoe'] = re.sub(r'\s*จ$','',amp).strip()
         if result['province']: break
-
-    # items
+    seen = set()
     for line in lines:
         if 'Z0001' in line or 'มัดจำ' in line: continue
         m = re.search(r'(\d{9})\s+(.+?)\s+(\d+)\s+คู่', line)
         if m:
-            barcode = m.group(1)
-            desc_raw = m.group(2).strip()
-            qty = int(m.group(3))
+            bc,dr,qty = m.group(1),m.group(2).strip(),int(m.group(3))
             if qty <= 0: continue
-            desc = normalize_thai(re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$','',desc_raw).strip())
-            ptype = detect_product_type(barcode, desc)
-            subtype = get_product_subtype(barcode, desc)
-            gift = is_gift(barcode, desc)
+            key = (bc, qty)
+            if key in seen: continue
+            seen.add(key)
+            desc = normalize_thai(re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$','',dr).strip())
+            ptype = detect_product_type(bc, desc)
+            subtype = get_product_subtype(bc, desc)
+            gift = is_gift(bc, desc)
             result['items'].append({'desc':desc,'type':ptype,'subtype':subtype,'qty':qty,'gift':gift})
     return result
 
-# ── CALC HELPERS ──────────────────────────────────────
+def parse_pdf(file_bytes):
+    """Parse PDF แยกตามหน้า — รองรับทั้ง single และ multi-IFO per file"""
+    pages_lines = []
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words(x_tolerance=3, y_tolerance=3)
+            rows = {}
+            for w in words:
+                y = round(w['top']/5)*5
+                rows.setdefault(y,[]).append(w['text'])
+            page_l = []
+            for y in sorted(rows):
+                l = clean_cid(' '.join(rows[y]))
+                if l: page_l.append(l)
+            pages_lines.append(page_l)
+
+    if not pages_lines: return []
+
+    # หา IFO id ของแต่ละหน้า
+    def get_ifo(lines):
+        for l in lines[:8]:
+            m = re.search(r'IFO-\d+', l)
+            if m: return m.group()
+        return None
+
+    # จัดกลุ่มหน้าตาม IFO
+    groups = {}  # {ifo_id: [page_lines, ...]}
+    order = []
+    for page_l in pages_lines:
+        ifo_id = get_ifo(page_l)
+        if not ifo_id: continue
+        if ifo_id not in groups:
+            groups[ifo_id] = []
+            order.append(ifo_id)
+        groups[ifo_id].extend(page_l)
+
+    if not groups: return []
+
+    # parse แต่ละกลุ่ม
+    docs = []
+    for ifo_id in order:
+        doc = parse_one_doc(groups[ifo_id])
+        if doc['docId'] and doc['items']:
+            docs.append(doc)
+    return docs
+
 
 def th_date(s):
     if not s: return ''
@@ -647,11 +682,18 @@ def build_excel(docs):
     return buf
 
 # ── UI ────────────────────────────────────────────────
-uploaded_files = st.file_uploader(
-    "📂 ลาก PDF มาวาง หรือคลิกเพื่อเลือกไฟล์",
-    type=['pdf'], accept_multiple_files=True,
-    help="รองรับหลายไฟล์พร้อมกัน"
-)
+col_up, col_clear = st.columns([4,1])
+with col_up:
+    uploaded_files = st.file_uploader(
+        "📂 ลาก PDF มาวาง หรือคลิกเพื่อเลือกไฟล์ (รองรับ PDF รวมหลาย IFO)",
+        type=['pdf'], accept_multiple_files=True,
+        key="uploader"
+    )
+with col_clear:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🗑️ ล้างข้อมูล", use_container_width=True):
+        st.session_state['uploader'] = []
+        st.rerun()
 
 if uploaded_files:
     docs = []
@@ -659,9 +701,14 @@ if uploaded_files:
     with st.spinner('🔍 กำลังอ่าน PDF...'):
         for f in uploaded_files:
             try:
-                doc = parse_pdf(f.read())
-                doc['_filename'] = f.name
-                docs.append(doc)
+                results = parse_pdf(f.read())
+                if isinstance(results, list):
+                    for doc in results:
+                        doc['_filename'] = f.name
+                        docs.append(doc)
+                else:
+                    results['_filename'] = f.name
+                    docs.append(results)
             except Exception as e:
                 errors.append(f"{f.name}: {e}")
 
@@ -672,6 +719,7 @@ if uploaded_files:
         docs.sort(key=lambda x: x['docId'] or '')
         for doc in docs:
             _aggregate(doc)
+        st.success(f"✅ อ่านได้ {len(docs)} เอกสาร")
 
         # grand summary
         tot_all = sum(d['_ct']+d['_ft2']+d['_ft3']+d['_gct']+d['_gft2']+d['_gft3'] for d in docs)

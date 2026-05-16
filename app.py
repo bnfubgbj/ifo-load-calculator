@@ -708,30 +708,11 @@ if uploaded_files:
     with st.spinner('🔍 กำลังอ่าน PDF...'):
         for f in uploaded_files:
             try:
-                st.write(f"⏳ กำลังอ่าน {f.name}...")
                 results = parse_pdf(f.read())
-                count = len(results) if isinstance(results,list) else (1 if results else 0)
-                st.write(f"✅ {f.name} → พบ {count} IFO")
-                if count == 0:
-                    # debug: แสดง lines จริงๆ
-                    import pdfplumber, io as _io
-                    fb = f.getvalue() if hasattr(f,'getvalue') else open(f.name,'rb').read()
-                    with pdfplumber.open(_io.BytesIO(fb)) as _pdf:
-                        _page = _pdf.pages[0]
-                        _words = _page.extract_words(x_tolerance=3, y_tolerance=3)
-                        _rows = {}
-                        for _w in _words:
-                            _y = round(_w['top']/5)*5
-                            _rows.setdefault(_y,[]).append(_w['text'])
-                        _lines = [' '.join(_rows[_y]) for _y in sorted(_rows)][:10]
-                    st.code('\n'.join(_lines))
-                if isinstance(results, list):
-                    for doc in results:
+                for doc in (results if isinstance(results, list) else [results]):
+                    if doc and doc.get('items'):
                         doc['_filename'] = f.name
                         docs.append(doc)
-                else:
-                    results['_filename'] = f.name
-                    docs.append(results)
             except Exception as e:
                 import traceback
                 errors.append(f"{f.name}: {e}")

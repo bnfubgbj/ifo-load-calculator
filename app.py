@@ -157,93 +157,120 @@ def agg(doc):
 
 def build_excel(docs):
     wb = Workbook()
+
+    # ── Colors & Styles ──
     BLUE='1B4F8A'; WHITE='FFFFFF'
-    CG='D5E8D4'; CGH='2D6A27'
-    CF='DBEAFE'; CFH='1E3A8A'
-    C212='D0E4FF'; C212H='1E40AF'
-    C213='E8D5F5'; C213H='5B21B6'
-    CGIFT='FFF2CC'; CSUM='F0F0F0'
+    CG='E2EFDA'; CGH='375623'      # ผ้าใบ
+    CF='DBEAFE'; CFH='1E3A8A'      # ฟองน้ำ 200
+    C212='D0E4FF'; C212H='1E40AF'  # ฟองน้ำ 212
+    C213='EDE9FE'; C213H='5B21B6'  # ฟองน้ำ 213
+    CGIFT='FFF9C4'; CALT='F5F8FA'
+
     thin=Side(style='thin',color='BBBBBB')
     bdr=Border(left=thin,right=thin,top=thin,bottom=thin)
 
-    def hf(sz=10): return Font(name='TH Sarabun New',bold=True,color=WHITE,size=sz)
-    def nf(sz=10,bold=False): return Font(name='TH Sarabun New',size=sz,bold=bold)
+    FONT = 'TH Sarabun New'
+    def hf(sz=11,color=WHITE,bold=True):
+        return Font(name=FONT,bold=bold,color=color,size=sz)
+    def nf(sz=11,bold=False,color='1E293B'):
+        return Font(name=FONT,size=sz,bold=bold,color=color)
     def fl(c): return PatternFill('solid',start_color=c,end_color=c)
-    def al(h='center'): return Alignment(horizontal=h,vertical='center',wrap_text=True)
+    def al(h='center',wrap=True):
+        return Alignment(horizontal=h,vertical='center',wrap_text=wrap)
 
-    ws = wb.active; ws.title='สรุป'
+    def wcell(ws,r,c,val,font=None,fill=None,align=None,border=None):
+        cell = ws.cell(row=r,column=c,value=val)
+        if font:  cell.font=font
+        if fill:  cell.fill=fill
+        if align: cell.alignment=align
+        if border:cell.border=border
+        return cell
 
-    # หา subtypes จริงๆ
+    def mwrite(ws,r1,c1,r2,c2,val,font=None,fill=None,align=None):
+        if r1==r2 and c1==c2:
+            ws.cell(row=r1,column=c1,value=val)
+        else:
+            ws.merge_cells(start_row=r1,start_column=c1,end_row=r2,end_column=c2)
+            ws.cell(row=r1,column=c1,value=val)
+        for rr in range(r1,r2+1):
+            for cc in range(c1,c2+1):
+                cell=ws.cell(row=rr,column=cc)
+                if font:  cell.font=font
+                if fill:  cell.fill=fill
+                if align: cell.alignment=align
+                cell.border=bdr
+
+    # ── หา subtypes ──
     canvas_subs = sorted(set(x['subtype'] for d in docs for x in d['items'] if x['type']=='canvas'))
     has212 = any(x['subtype']=='212' for d in docs for x in d['items'] if x['type']=='foam212')
     has213 = any(x['subtype']=='213' for d in docs for x in d['items'] if x['type']=='foam212')
 
-    # build columns
-    cols = ['วันที่','เลขที่IFO','ชื่อลูกค้า','อำเภอ','จังหวัด']
-    col_fills = [BLUE]*5
-    group_ranges = [(1,5,'ข้อมูล',BLUE)]
-    col = 6
+    # ══════════════════════════════════════════
+    # SHEET 1: สรุปรายเอกสาร
+    # ══════════════════════════════════════════
+    ws1 = wb.active; ws1.title='สรุปรายเอกสาร'
+
+    # build dynamic columns
+    grp_cols = []  # (start, end, label, header_color, data_color)
+    # info cols A-E
+    grp_cols.append({'sc':1,'ec':5,'label':'ข้อมูลเอกสาร','hc':BLUE,'dc':BLUE,
+                     'subs':['วันที่','เลขที่IFO','ชื่อลูกค้า','อำเภอ','จังหวัด']})
+    col=6
     for sub in canvas_subs:
-        cols += ['คู่','กล่อง','เศษ']
-        col_fills += [CGH]*3
-        group_ranges.append((col,col+2,f'ผ้าใบ {sub} (12คู่/กล่อง)',CGH))
-        col += 3
-    cols += ['คู่','โหล','กระสอบ','เศษโหล']
-    col_fills += [CFH]*4
-    group_ranges.append((col,col+3,'ฟองน้ำ 200 (120คู่/กระสอบ)',CFH))
-    col += 4
+        grp_cols.append({'sc':col,'ec':col+2,'label':f'ผ้าใบ {sub} (12 คู่/กล่อง)','hc':CGH,'dc':CG,
+                         'subs':['คู่','กล่อง','เศษคู่']})
+        col+=3
+    grp_cols.append({'sc':col,'ec':col+3,'label':'ฟองน้ำ 200 (120 คู่/กระสอบ)','hc':CFH,'dc':CF,
+                     'subs':['คู่','โหล','กระสอบ','เศษโหล']})
+    col+=4
     if has212:
-        cols += ['คู่','กล่อง','เศษ']
-        col_fills += [C212H]*3
-        group_ranges.append((col,col+2,'ฟองน้ำ 212 (24คู่/กล่อง)',C212H))
-        col += 3
+        grp_cols.append({'sc':col,'ec':col+2,'label':'ฟองน้ำ 212 (24 คู่/กล่อง)','hc':C212H,'dc':C212,
+                         'subs':['คู่','กล่อง','เศษโหล']})
+        col+=3
     if has213:
-        cols += ['คู่','กล่อง','เศษ']
-        col_fills += [C213H]*3
-        group_ranges.append((col,col+2,'ฟองน้ำ 213 (24คู่/กล่อง)',C213H))
-        col += 3
-    cols += ['รวม']; col_fills += [BLUE]
-    NCOLS = len(cols)
+        grp_cols.append({'sc':col,'ec':col+2,'label':'ฟองน้ำ 213 (24 คู่/กล่อง)','hc':C213H,'dc':C213,
+                         'subs':['คู่','กล่อง','เศษโหล']})
+        col+=3
+    grp_cols.append({'sc':col,'ec':col,'label':'รวม','hc':BLUE,'dc':BLUE,'subs':['รวมคู่']})
+    NCOLS=col
 
-    # title
-    ws.merge_cells(f'A1:{get_column_letter(NCOLS)}1')
-    ws['A1'] = 'สรุปโหลดสินค้า — บริษัท นันยางมาร์เก็ตติ้ง จำกัด'
-    ws['A1'].font=hf(13); ws['A1'].fill=fl(BLUE); ws['A1'].alignment=al()
-    ws.row_dimensions[1].height=26
+    # Row 1: title
+    mwrite(ws1,1,1,1,NCOLS,'สรุปโหลดสินค้า — บริษัท นันยางมาร์เก็ตติ้ง จำกัด',
+           font=hf(14),fill=fl(BLUE),align=al())
+    ws1.row_dimensions[1].height=28
+    # Row 2: date
+    mwrite(ws1,2,1,2,NCOLS,f'พิมพ์: {datetime.now().strftime("%d/%m/%Y %H:%M")}',
+           font=nf(10),align=al('right'))
+    ws1.row_dimensions[2].height=16
+    # Row 3: group headers
+    for g in grp_cols:
+        mwrite(ws1,3,g['sc'],3,g['ec'],g['label'],font=hf(11),fill=fl(g['hc']),align=al())
+    ws1.row_dimensions[3].height=22
+    # Row 4: sub headers
+    col_idx=1
+    col_dc_map={}
+    for g in grp_cols:
+        for si,sub in enumerate(g['subs']):
+            wcell(ws1,4,col_idx,sub,font=hf(10),fill=fl(g['hc']),align=al(),border=bdr)
+            col_dc_map[col_idx]=g['dc']
+            col_idx+=1
+    ws1.row_dimensions[4].height=34
 
-    ws.merge_cells(f'A2:{get_column_letter(NCOLS)}2')
-    ws['A2'] = f'พิมพ์: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
-    ws['A2'].font=nf(9); ws['A2'].alignment=al('right')
-
-    # group row
-    for sc,ec,label,color in group_ranges:
-        if sc==ec: ws.cell(row=3,column=sc,value=label)
-        else: ws.merge_cells(start_row=3,start_column=sc,end_row=3,end_column=ec); ws.cell(row=3,column=sc,value=label)
-        for c in range(sc,ec+1):
-            cell=ws.cell(row=3,column=c)
-            cell.font=hf(10); cell.fill=fl(color); cell.alignment=al(); cell.border=bdr
-    ws.row_dimensions[3].height=20
-
-    # sub headers
-    for ci,(h,color) in enumerate(zip(cols,col_fills),1):
-        c=ws.cell(row=4,column=ci,value=h)
-        c.font=hf(10); c.fill=fl(color); c.alignment=al(); c.border=bdr
-    ws.row_dimensions[4].height=32
-
-    # data
+    # Data rows
     tot=defaultdict(int)
     for i,doc in enumerate(docs):
         r=5+i
-        bg='FFFFFF' if i%2==0 else 'F5F8FA'
+        bg='FFFFFF' if i%2==0 else CALT
         canvas_qty=defaultdict(int)
         for x in doc['items']:
             if x['type']=='canvas': canvas_qty[x['subtype']]+=x['qty']
         ft2=doc['_ft2']; f212=doc['_ft3_212']; f213=doc['_ft3_213']
         grand=doc['_ct']+ft2+f212+f213
-        tot['ft2']+=ft2; tot['f212']+=f212; tot['f213']+=f213
         for sub in canvas_subs: tot[f'c_{sub}']+=canvas_qty.get(sub,0)
+        tot['ft2']+=ft2; tot['f212']+=f212; tot['f213']+=f213
 
-        row_vals=[th_date(doc['date']),doc['docId'],doc['customer'],doc.get('amphoe',''),doc.get('province','')]
+        row_vals=[th_date(doc['date']),doc['docId'],doc['customer'],
+                  doc.get('amphoe',''),doc.get('province','')]
         row_bgs=[bg]*5
         for sub in canvas_subs:
             ct=canvas_qty.get(sub,0); cc=calc_canvas(ct)
@@ -253,58 +280,169 @@ def build_excel(docs):
         row_vals+=[ft2 or '-',cf2['doz'] or '-',cf2['sacks'] or '-',cf2['rem_doz'] or '-']
         row_bgs+=[CF if ft2 else bg]*4
         if has212:
-            c212=calc_foam212(f212)
-            row_vals+=[f212 or '-',c212['boxes'] or '-',c212['rem_doz'] or '-']
+            c2=calc_foam212(f212)
+            row_vals+=[f212 or '-',c2['boxes'] or '-',c2['rem_doz'] or '-']
             row_bgs+=[C212 if f212 else bg]*3
         if has213:
-            c213=calc_foam212(f213)
-            row_vals+=[f213 or '-',c213['boxes'] or '-',c213['rem_doz'] or '-']
+            c3=calc_foam212(f213)
+            row_vals+=[f213 or '-',c3['boxes'] or '-',c3['rem_doz'] or '-']
             row_bgs+=[C213 if f213 else bg]*3
         row_vals+=[grand]; row_bgs+=['D6E4F0']
 
         for ci,(val,bgc) in enumerate(zip(row_vals,row_bgs),1):
-            c=ws.cell(row=r,column=ci,value=val)
-            c.fill=fl(bgc); c.font=nf(10,bold=(ci==NCOLS))
-            c.alignment=al('left') if ci<=3 else al(); c.border=bdr
-        ws.row_dimensions[r].height=22
+            wcell(ws1,r,ci,val,
+                  font=nf(11,bold=(ci==NCOLS)),
+                  fill=fl(bgc),
+                  align=al('left' if ci<=3 else 'center'),
+                  border=bdr)
+        ws1.row_dimensions[r].height=22
 
-    # summary
+    # Summary row
     sr=5+len(docs)
-    ws.merge_cells(start_row=sr,start_column=1,end_row=sr,end_column=5)
-    sum_vals={1:'รวมทั้งหมด'}
+    mwrite(ws1,sr,1,sr,5,'รวมทั้งหมด',font=hf(11),fill=fl(BLUE),align=al())
     ci=6
     for sub in canvas_subs:
         cc=calc_canvas(tot[f'c_{sub}'])
-        sum_vals[ci]=tot[f'c_{sub}'] or '-'; sum_vals[ci+1]=cc['boxes'] or '-'; sum_vals[ci+2]=cc['rem'] or '-'
-        ci+=3
+        for v in [tot[f'c_{sub}'] or '-',cc['boxes'] or '-',cc['rem'] or '-']:
+            wcell(ws1,sr,ci,v,font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr); ci+=1
     cf2=calc_foam200(tot['ft2'])
-    sum_vals[ci]=tot['ft2'] or '-'; sum_vals[ci+1]=cf2['doz'] or '-'
-    sum_vals[ci+2]=cf2['sacks'] or '-'; sum_vals[ci+3]=cf2['rem_doz'] or '-'; ci+=4
+    for v in [tot['ft2'] or '-',cf2['doz'] or '-',cf2['sacks'] or '-',cf2['rem_doz'] or '-']:
+        wcell(ws1,sr,ci,v,font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr); ci+=1
     if has212:
-        c212=calc_foam212(tot['f212'])
-        sum_vals[ci]=tot['f212'] or '-'; sum_vals[ci+1]=c212['boxes'] or '-'; sum_vals[ci+2]=c212['rem_doz'] or '-'; ci+=3
+        c2=calc_foam212(tot['f212'])
+        for v in [tot['f212'] or '-',c2['boxes'] or '-',c2['rem_doz'] or '-']:
+            wcell(ws1,sr,ci,v,font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr); ci+=1
     if has213:
-        c213=calc_foam212(tot['f213'])
-        sum_vals[ci]=tot['f213'] or '-'; sum_vals[ci+1]=c213['boxes'] or '-'; sum_vals[ci+2]=c213['rem_doz'] or '-'; ci+=3
-    sum_vals[NCOLS]=sum(tot.values())
-    for ci in range(1,NCOLS+1):
-        c=ws.cell(row=sr,column=ci)
-        if ci in sum_vals: c.value=sum_vals[ci]
-        c.font=hf(10); c.fill=fl(BLUE); c.alignment=al(); c.border=bdr
-    ws.row_dimensions[sr].height=24
+        c3=calc_foam212(tot['f213'])
+        for v in [tot['f213'] or '-',c3['boxes'] or '-',c3['rem_doz'] or '-']:
+            wcell(ws1,sr,ci,v,font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr); ci+=1
+    wcell(ws1,sr,ci,sum(tot.values()),font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr)
+    ws1.row_dimensions[sr].height=24
 
-    # widths
-    base_w=[12,14,24,12,14]
+    # col widths sheet1
+    base_w=[12,14,26,12,14]
     for _ in canvas_subs: base_w+=[8,8,8]
     base_w+=[8,8,10,10]
     if has212: base_w+=[8,8,8]
     if has213: base_w+=[8,8,8]
     base_w+=[10]
     for ci,w in enumerate(base_w,1):
-        ws.column_dimensions[get_column_letter(ci)].width=w
+        ws1.column_dimensions[get_column_letter(ci)].width=w
+
+    # ══════════════════════════════════════════
+    # SHEET 2: สรุปรวม
+    # ══════════════════════════════════════════
+    ws2=wb.create_sheet('สรุปรวม')
+
+    mwrite(ws2,1,1,1,8,f'สรุปรวมทุกเอกสาร ({len(docs)} IFO) — {datetime.now().strftime("%d/%m/%Y %H:%M")}',
+           font=hf(13),fill=fl(BLUE),align=al())
+    ws2.row_dimensions[1].height=26
+
+    # summary boxes row 3-4
+    blocks=[]
+    for sub in canvas_subs:
+        ct=tot[f'c_{sub}']; cc=calc_canvas(ct)
+        blocks.append((f'ผ้าใบ {sub} (ปกติ)',f'{ct} คู่ / {cc["boxes"]} กล่อง',CGH,CG))
+    if tot['ft2']:
+        cf2=calc_foam200(tot['ft2'])
+        txt=f'{tot["ft2"]} คู่ / {cf2["sacks"]} กระสอบ'
+        if cf2['rem_doz']: txt+=f' เศษ {cf2["rem_doz"]} โหล'
+        blocks.append(('ฟองน้ำ 200 (ปกติ)',txt,CFH,CF))
+    if tot['f212']:
+        c2=calc_foam212(tot['f212'])
+        blocks.append(('ฟองน้ำ 212 (ปกติ)',f'{tot["f212"]} คู่ / {c2["boxes"]} กล่อง',C212H,C212))
+    if tot['f213']:
+        c3=calc_foam212(tot['f213'])
+        blocks.append(('ฟองน้ำ 213 (ปกติ)',f'{tot["f213"]} คู่ / {c3["boxes"]} กล่อง',C213H,C213))
+
+    col=1
+    for label,val,hc,dc in blocks:
+        mwrite(ws2,3,col,3,col+1,label,font=hf(11),fill=fl(hc),align=al())
+        mwrite(ws2,4,col,4,col+1,val,font=nf(12,bold=True),fill=fl(dc),align=al())
+        ws2.column_dimensions[get_column_letter(col)].width=16
+        ws2.column_dimensions[get_column_letter(col+1)].width=16
+        col+=2
+    ws2.row_dimensions[3].height=22; ws2.row_dimensions[4].height=26
+
+    # breakdown table
+    r=6
+    mwrite(ws2,r,1,r,8,'รายละเอียดตามชนิดสินค้า (รวมทุก IFO)',font=hf(12),fill=fl(BLUE),align=al())
+    ws2.row_dimensions[r].height=22; r+=1
+
+    det_hdrs=['ชนิดสินค้า','ประเภท','รวม คู่','โหล','กล่อง/กระสอบ','เศษโหล','เศษคู่','หน่วย']
+    for ci,h in enumerate(det_hdrs,1):
+        wcell(ws2,r,ci,h,font=hf(11),fill=fl(BLUE),align=al(),border=bdr)
+    ws2.row_dimensions[r].height=22; r+=1
+
+    TYPE_UNIT={'canvas':'กล่อง','foam200':'กระสอบ','foam212':'กล่อง'}
+    subtype_data=defaultdict(lambda:defaultdict(int))
+    for doc in docs:
+        for x in doc['items']:
+            subtype_data[(x['subtype'],x['type'],x['gift'])]['qty']+=x['qty']
+
+    sorted_keys=sorted(subtype_data.keys(),key=lambda x:({'canvas':0,'foam200':1,'foam212':2}.get(x[1],3),int(x[2]),x[0]))
+    last_gift=None
+    for key in sorted_keys:
+        sub,ptype,gift=key
+        qty=subtype_data[key]['qty']
+        if qty==0: continue
+        if gift and last_gift==False:
+            ws2.row_dimensions[r].height=6; r+=1
+        last_gift=gift
+        doz=qty//12
+        if ptype=='canvas':
+            cc=calc_canvas(qty); pack=cc['boxes']; rem_doz='-'; rem_pair=cc['rem'] or '-'; unit='กล่อง'; dc=CGIFT if gift else CG
+        elif ptype=='foam200':
+            cf=calc_foam200(qty); pack=cf['sacks']; rem_doz=cf['rem_doz'] or '-'; rem_pair=cf['rem_pairs'] if 'rem_pairs' in cf else '-'; unit='กระสอบ'; dc=CGIFT if gift else CF
+        else:
+            cf=calc_foam212(qty); pack=cf['boxes']; rem_doz=cf['rem_doz'] or '-'; rem_pair=cf['rem'] if 'rem' in cf else '-'; unit='กล่อง'
+            dc=(CGIFT if gift else (C212 if sub=='212' else C213))
+        row_v=[sub,'ของแถม' if gift else 'ปกติ',qty,doz,pack,rem_doz,rem_pair,unit]
+        for ci,v in enumerate(row_v,1):
+            wcell(ws2,r,ci,v,font=nf(11,bold=(ci==1)),fill=fl(dc),align=al('left' if ci<=2 else 'center'),border=bdr)
+        ws2.row_dimensions[r].height=20; r+=1
+
+    for ci,w in enumerate([16,10,10,8,14,10,10,10],1):
+        ws2.column_dimensions[get_column_letter(ci)].width=w
+
+    # ══════════════════════════════════════════
+    # SHEET 3: รายละเอียด
+    # ══════════════════════════════════════════
+    ws3=wb.create_sheet('รายละเอียด')
+    mwrite(ws3,1,1,1,8,'รายละเอียดสินค้าทุกรายการ',font=hf(13),fill=fl(BLUE),align=al())
+    ws3.row_dimensions[1].height=24
+
+    dh=['วันที่','เลขที่IFO','ชื่อลูกค้า','รายการสินค้า','ประเภท','คู่','โหล','กล่อง/กระสอบ/กล่อง']
+    for ci,h in enumerate(dh,1):
+        wcell(ws3,2,ci,h,font=hf(11),fill=fl(BLUE),align=al(),border=bdr)
+    ws3.row_dimensions[2].height=22
+
+    TYPE_LABEL={'canvas':'ผ้าใบ','foam200':'ฟองน้ำ 200','foam212':'ฟองน้ำ 212/213'}
+    TYPE_COLOR={'canvas':CG,'foam200':CF,'foam212':C212}
+
+    r3=3
+    for doc in docs:
+        for x in doc['items']:
+            qty=x['qty']; doz=qty//12; ptype=x['type']
+            if ptype=='canvas':
+                cc=calc_canvas(qty); load=f'{cc["boxes"]} กล่อง'+(f' เศษ {cc["rem"]} คู่' if cc['rem'] else '')
+            elif ptype=='foam200':
+                cf=calc_foam200(qty); load=f'{cf["sacks"]} กระสอบ'+(f' เศษ {cf["rem_doz"]} โหล' if cf['rem_doz'] else '')
+            else:
+                cf=calc_foam212(qty); load=f'{cf["boxes"]} กล่อง'+(f' เศษ {cf["rem_doz"]} โหล' if cf['rem_doz'] else '')
+            label=TYPE_LABEL.get(ptype,'อื่นๆ')
+            dc=CGIFT if x['gift'] else (C213 if x['subtype']=='213' else TYPE_COLOR.get(ptype,'FFFFFF'))
+            row_v=[th_date(doc['date']),doc['docId'],doc['customer'],x['desc'],label,qty,doz,load]
+            for ci,v in enumerate(row_v,1):
+                wcell(ws3,r3,ci,v,font=nf(10),fill=fl(dc),align=al('left' if ci<=4 else 'center'),border=bdr)
+            ws3.row_dimensions[r3].height=18; r3+=1
+
+    for ci,w in enumerate([12,14,26,36,14,8,8,20],1):
+        ws3.column_dimensions[get_column_letter(ci)].width=w
 
     buf=io.BytesIO(); wb.save(buf); buf.seek(0)
     return buf
+
 
 # ── UI ──
 st.markdown("""

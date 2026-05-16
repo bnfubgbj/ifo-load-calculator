@@ -172,27 +172,24 @@ def parse_pdf(file_bytes):
             page_l = []
             for y in sorted(rows):
                 raw = ' '.join(rows[y])
-                # ลบ cid ก่อน join เลย
                 raw = re.sub(r'\(cid:\d+\)', '', raw)
                 l = re.sub(r'\s+', ' ', raw).strip()
                 if l: page_l.append(l)
-            # fallback: ถ้าไม่ได้จาก words ให้ลอง extract_text
             if not page_l:
                 txt = page.extract_text() or ''
-                page_l = [clean_cid(l) for l in txt.split('\n') if l.strip()]
+                page_l = [re.sub(r'\s+',' ',re.sub(r'\(cid:\d+\)','',ln)).strip()
+                          for ln in txt.split('\n') if ln.strip()]
             pages_lines.append(page_l)
 
     if not pages_lines: return []
 
-    # หา IFO id ของแต่ละหน้า — รองรับทั้ง "IFO-031337" และ "เลขที. : IFO-031398"
     def get_ifo(lines):
         for l in lines[:10]:
             m = re.search(r'IFO-\d+', l)
             if m: return m.group()
         return None
 
-    # จัดกลุ่มหน้าตาม IFO
-    groups = {}  # {ifo_id: [page_lines, ...]}
+    groups = {}
     order = []
     for page_l in pages_lines:
         ifo_id = get_ifo(page_l)
@@ -204,7 +201,6 @@ def parse_pdf(file_bytes):
 
     if not groups: return []
 
-    # parse แต่ละกลุ่ม
     docs = []
     for ifo_id in order:
         doc = parse_one_doc(groups[ifo_id])

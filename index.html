@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<!-- saved from url=(0056)file:///C:/Users/Sathaphon.p/Downloads/index%20(16).html -->
+<html lang="th"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คำนวณโหลดสินค้า IFO</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:'Sarabun',sans-serif;
+  background:linear-gradient(135deg,#1B4F8A 0%,#163D6E 100%);
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+}
+.card{
+  background:#fff;border-radius:20px;padding:40px 36px;
+  text-align:center;max-width:420px;width:90%;
+  box-shadow:0 20px 60px rgba(0,0,0,0.3);
+}
+.icon{font-size:56px;margin-bottom:16px}
+h1{font-size:22px;font-weight:700;color:#1B4F8A;margin-bottom:8px}
+p{font-size:15px;color:#64748B;margin-bottom:28px;line-height:1.6}
+.btn{
+  display:block;width:100%;padding:16px;
+  background:linear-gradient(135deg,#1B4F8A,#2563EB);
+  color:#fff;border:none;border-radius:12px;
+  font-size:18px;font-weight:700;cursor:pointer;
+  text-decoration:none;transition:all .2s;
+  box-shadow:0 4px 15px rgba(27,79,138,0.4);
+}
+.btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(27,79,138,0.5)}
+.btn:active{transform:translateY(0)}
+
+.status{
+  margin-top:20px;font-size:13px;color:#94A3B8;
+  min-height:20px;transition:all .3s;
+}
+.status.loading{color:#2563EB;font-weight:600}
+.status.ready{color:#16A34A;font-weight:600}
+
+.steps{
+  margin-top:24px;text-align:left;
+  background:#F8FAFC;border-radius:10px;padding:16px;
+}
+.steps p{font-size:13px;color:#64748B;margin-bottom:0}
+.step{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;color:#475569}
+.step-num{
+  width:22px;height:22px;background:#1B4F8A;color:#fff;
+  border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;flex-shrink:0;
+}
+
+.progress{
+  display:none;margin-top:16px;
+  height:6px;background:#E2E8F0;border-radius:3px;overflow:hidden;
+}
+.progress-bar{
+  height:100%;background:linear-gradient(90deg,#1B4F8A,#2563EB);
+  border-radius:3px;width:0%;transition:width 0.5s ease;
+}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="icon">📦</div>
+  <h1>คำนวณโหลดสินค้า IFO</h1>
+  <p>นันยางมาร์เก็ตติ้ง จำกัด<br>กด <strong>เปิด App</strong> แล้วรอสักครู่นะครับ</p>
+
+  <a href="https://ifo-load-calculator.streamlit.app/" target="_blank" class="btn" id="wakeBtn" onclick="startWake()">
+    🚀 เปิด App คำนวณโหลด
+  </a>
+
+  <div class="progress" id="progress">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="steps">
+    <div class="step"><span class="step-num">1</span> กดปุ่มเปิด App ด้านบน</div>
+    <div class="step"><span class="step-num">2</span> ถ้า app หลับอยู่ กด <strong>"Yes, get this app back up!"</strong></div>
+    <div class="step"><span class="step-num">3</span> รอประมาณ 1-2 นาที app จะตื่น</div>
+    <div class="step"><span class="step-num">4</span> ลาก PDF ใส่แล้วกดดาวน์โหลด Excel ได้เลย</div>
+  </div>
+</div>
+
+<script>
+function startWake(){
+  const status = document.getElementById('status');
+  const progress = document.getElementById('progress');
+  const bar = document.getElementById('progressBar');
+
+  progress.style.display = 'block';
+  status.className = 'status loading';
+  status.textContent = '⏳ กำลังปลุก app... รอสักครู่นะครับ';
+
+  let pct = 0;
+  const iv = setInterval(()=>{
+    pct += Math.random() * 8;
+    if(pct > 90) pct = 90;
+    bar.style.width = pct + '%';
+  }, 500);
+
+  setTimeout(()=>{
+    clearInterval(iv);
+    bar.style.width = '100%';
+    status.className = 'status ready';
+    status.textContent = '✅ เปิด tab ใหม่แล้ว — ถ้า app ยังหลับอยู่ให้กด "Yes, get this app back up!"';
+  }, 5000);
+}
+</script>
+
+
+
+</body></html>

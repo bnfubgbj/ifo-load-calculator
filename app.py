@@ -682,16 +682,20 @@ def build_excel(docs):
     return buf
 
 # ── UI ────────────────────────────────────────────────
+if 'upload_key' not in st.session_state:
+    st.session_state['upload_key'] = 0
+
 col_up, col_clear = st.columns([4,1])
 with col_up:
     uploaded_files = st.file_uploader(
         "📂 ลาก PDF มาวาง หรือคลิกเพื่อเลือกไฟล์ (รองรับ PDF รวมหลาย IFO)",
         type=['pdf'], accept_multiple_files=True,
-        key="uploader"
+        key=f"uploader_{st.session_state['upload_key']}"
     )
 with col_clear:
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🗑️ ล้างข้อมูล", use_container_width=True):
+        st.session_state['upload_key'] += 1
         st.rerun()
 
 if uploaded_files:

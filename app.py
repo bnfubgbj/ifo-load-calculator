@@ -25,6 +25,14 @@ def clean(s):
     s = re.sub(r'\(cid:\d+\)', '', s)
     return re.sub(r'\s+', ' ', s).strip()
 
+def th_date(s):
+    if not s: return ''
+    try:
+        y,m,d = s.split('-')
+        mn=['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+        return f"{int(d)} {mn[int(m)]} {int(y)+543}"
+    except: return s
+
 def norm(s):
     """แก้ตัวอักษรไทยที่ PDF ทำให้เพี้ยน"""
     if not s: return s

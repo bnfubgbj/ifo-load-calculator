@@ -27,35 +27,58 @@ def clean(s):
 
 def norm(s):
     """แก้ตัวอักษรไทยที่ PDF ทำให้เพี้ยน"""
+    if not s: return s
     fixes = [
-        (r'รา้น','ร้าน'),(r'รา้ น','ร้าน'),(r'ราน้','ร้าน'),
-        (r'บรษิ ทั','บริษัท'),(r'บรษิัท','บริษัท'),
-        (r'จาํ กดั','จำกัด'),(r'จํากัด','จำกัด'),
-        (r'ภเูก็ต','ภูเก็ต'),(r'ภเูก็ต','ภูเก็ต'),
+        # สระ/วรรณยุกต์หลุด
+        (r'รา้น','ร้าน'),(r'รา้ น','ร้าน'),
+        (r'บา้น','บ้าน'),(r'บา้ น','บ้าน'),
+        (r'ถกู ','ถูก'),(r'มดแดง','มดแดง'),
+        (r'รองเทา้','รองเท้า'),
+        (r'บรษิ ทั ','บริษัท '),(r'บรษิัท','บริษัท'),
+        (r'จาํ กดั','จำกัด'),(r'จํากดั','จำกัด'),
+        (r'คณุ ','คุณ '),(r'คณุ','คุณ'),
         (r'เมอื ง','เมือง'),(r'เมอื ง','เมือง'),
+        (r'พมิ ล','พิมล'),(r'พรพมิ ล','พรพิมล'),
+        (r'วาสนา','วาสนา'),(r'จางนะ','จางนะ'),
+        (r'จอมแจง้','จอมแจ้ง'),(r'บารเ์บอร์?','บาร์เบอร์'),
+        (r'พษิ ฐ์?','พิษฐ์'),(r'พศิ ษิ ฐ์?','พิษฐ์'),
+        # จังหวัด
+        (r'ชลบรุ ี','ชลบุรี'),(r'ชลบรีุ','ชลบุรี'),
         (r'ประจวบครีขี ันธ์','ประจวบคีรีขันธ์'),
         (r'ประจวบคีรีขันธ์','ประจวบคีรีขันธ์'),
         (r'นครสวรรค์','นครสวรรค์'),
         (r'กําแพงเพชร','กำแพงเพชร'),
         (r'สพุ รรณบรุ ี','สุพรรณบุรี'),
-        (r'หนองคาย','หนองคาย'),
-        (r'เชยงราย ี','เชียงราย'),(r'เชยี งราย','เชียงราย'),
-        (r'ระยอง','ระยอง'),(r'สระบรุ ี','สระบุรี'),
+        (r'สระบรุ ี','สระบุรี'),
+        (r'เพชรบรุ ี','เพชรบุรี'),
+        (r'เชยี งราย','เชียงราย'),(r'เชยงราย ี','เชียงราย'),
+        (r'แมฮ่ อ่งสอน','แม่ฮ่องสอน'),
+        (r'ภเูก็ต','ภูเก็ต'),
+        (r'ระยอง','ระยอง'),
+        # อำเภอ
+        (r'ทา่ ยาง','ท่ายาง'),(r'ทา่ยาง','ท่ายาง'),
+        (r'วหิ ารแดง','วิหารแดง'),
+        (r'บางสะพาน','บางสะพาน'),
+        (r'ปราณบรุ ี','ปราณบุรี'),
+        (r'โพนพสิ ัย','โพนพิสัย'),
         (r'ขาณวุรลักษบรุ ี','ขาณุวรลักษบุรี'),
-        (r'คณุ ','คุณ '),(r'รา้น ','ร้าน'),
-        (r'ซปุ เปอร์','ซุปเปอร์'),(r'ชป','ชอป'),
+        (r'อู่ทอง','อู่ทอง'),
+        # ชื่อร้าน/บริษัท
+        (r'ซปุ เปอร์','ซุปเปอร์'),(r'ซปุ เปอร์ ชป','ซุปเปอร์ชอป'),
+        (r'ไทยนยิ ม','ไทยนิยม'),(r'ไทยนยิม','ไทยนิยม'),
+        (r'กําไลบตู คิ','กำไลบูติก'),
+        (r'สริิภพ','สิริภพ'),(r'สริภิพ','สิริภพ'),
+        (r'แสนดี1','แสนดี1'),
+        (r'อยีมเจรญิ','อ้ยีมเจริญ'),
+        (r'แคลว้','แคล้ว'),
+        (r'ปัญชรัสมิ','ปัญชรัสมิ์'),
+        (r'แจว ขวญั วงษ์','แจ๋ว ขวัญวงษ์'),
+        # misc
         (r'\s+',' '),
     ]
     for p,r in fixes: s = re.sub(p,r,s)
     return s.strip()
 
-def th_date(s):
-    if not s: return ''
-    try:
-        y,m,d = s.split('-')
-        mn=['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
-        return f"{int(d)} {mn[int(m)]} {int(y)+543}"
-    except: return s
 
 def detect_type(barcode):
     p = barcode[:3]
@@ -72,44 +95,77 @@ def get_subtype(barcode, desc):
     if '200' in desc: return '200'
     return desc.split()[0] if desc else 'อื่นๆ'
 
+def extract_header_lines(page):
+    """ใช้ extract_words สำหรับ header — ตัวอักษรถูกต้อง"""
+    words = page.extract_words(x_tolerance=3, y_tolerance=3)
+    rows = {}
+    for w in words:
+        y = round(w['top']/5)*5
+        rows.setdefault(y,[]).append(w['text'])
+    lines = []
+    for y in sorted(rows):
+        raw = ' '.join(rows[y])
+        raw = re.sub(r'\(cid:\d+\)', '', raw)
+        l = re.sub(r'\s+', ' ', raw).strip()
+        if l: lines.append(l)
+    return lines
+
 def parse_pdf(file_bytes):
-    # จัดกลุ่มหน้าตาม IFO
-    groups = {}
-    order = []
+    """Parse PDF — header ใช้ extract_words (ถูกต้อง), items ใช้ extract_text (เร็ว)"""
+    page_data = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
-            txt = clean(page.extract_text() or '')
-            m = re.search(r'IFO-\d+', txt)
-            if not m: continue
-            ifo = m.group()
-            if ifo not in groups:
-                groups[ifo] = []
-                order.append(ifo)
-            groups[ifo].append(txt)
+            hlines = extract_header_lines(page)
+            txt = page.extract_text() or ''
+            txt_c = re.sub(r'\(cid:\d+\)', '', txt)
+            txt_c = re.sub(r'\s+', ' ', txt_c)
+            page_data.append((hlines, txt_c))
+
+    if not page_data: return []
+
+    def get_ifo(lines):
+        for l in lines[:10]:
+            m = re.search(r'IFO-\d+', l)
+            if m: return m.group()
+        return None
+
+    groups = {}; order = []
+    for hlines, txt in page_data:
+        ifo_id = get_ifo(hlines)
+        if not ifo_id: continue
+        if ifo_id not in groups:
+            groups[ifo_id] = {'hlines':[], 'text':''}
+            order.append(ifo_id)
+        groups[ifo_id]['hlines'].extend(hlines)
+        groups[ifo_id]['text'] += txt + ' '
+
+    if not groups: return []
 
     docs = []
-    for ifo in order:
-        full_text = '\n'.join(groups[ifo])
-        lines = [clean(l) for l in full_text.split('\n') if l.strip()]
+    for ifo_id in order:
+        g = groups[ifo_id]
+        doc = {'docId':ifo_id,'date':'','customer':'','province':'','amphoe':'','items':[]}
+        lines = g['hlines']
+        full_text = g['text']
 
-        doc = {'docId': ifo, 'date': '', 'customer': '', 'province': '', 'amphoe': '', 'items': []}
-
-        # date
+        # date จาก header lines
         pat = r'(\d{1,2})\s+(' + '|'.join(re.escape(k) for k in MONTH_MAP) + r')\s+(\d{4})'
-        m = re.search(pat, full_text)
-        if m:
-            d,mo,y = m.group(1),m.group(2),int(m.group(3))
-            if y > 2500: y -= 543
-            doc['date'] = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
+        for line in lines[:15]:
+            m = re.search(pat, line)
+            if m:
+                d,mo,y = m.group(1),m.group(2),int(m.group(3))
+                if y > 2500: y -= 543
+                doc['date'] = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
+                break
 
-        # customer
+        # customer จาก header lines (extract_words ถูกต้อง)
         for line in lines[:20]:
             m = re.search(r'ช\S*\s+ล\S*\s+ค\S*\s*:\s*(.+?)(?:\s+ว\S*\s+ท|$)', line)
             if m:
                 doc['customer'] = m.group(1).strip()
                 break
 
-        # province
+        # province & amphoe จาก header lines
         for line in lines[:15]:
             mp = re.search(r'จ\.([ก-๙]+(?:\s+[ก-๙]+)?)', line)
             ma = re.search(r'อ\.([ก-๙]+(?:\s+[ก-๙]+)?)(?:\s+จ\.)?', line)
@@ -117,31 +173,51 @@ def parse_pdf(file_bytes):
             if ma: doc['amphoe'] = re.sub(r'\s*จ$','',re.sub(r'\d+.*','',ma.group(1)).strip()).strip()
             if doc['province']: break
 
-        # items — รองรับทั้ง extract_text (บรรทัดยาว) และ extract_words
+        # items จาก full_text
+        # รองรับ 2 format:
+        # ปกติ:  <bc> <desc> <qty> คู่ <ราคา> <ส่วนลด> <รวม>
+        # แถม:   <qty> คู่ 0.00 0.00 ของแถม <ลำดับ> <bc> <desc>
         seen = set()
-        # แยก items จาก full_text โดยหา barcode 9 หลักตามด้วยจำนวนคู่
-        # หา items โดย match barcode + desc + qty ทีละรายการ
-        # format: <barcode9หลัก> <desc> <qty> คู่ <ราคา>
-        item_pattern = re.compile(r'(?<![\d])((1[12]\d{7}))\s+(.+?)\s+(\d{1,4})\s+คู่')
-        for m in item_pattern.finditer(full_text):
-            bc, desc_raw, qty = m.group(1), m.group(3).strip(), int(m.group(4))
+
+        # format ของแถม: qty คู่ 0.00 0.00 ของแถม ... barcode desc
+        gift_pat = re.compile(r'(\d{1,4})\s+คู่\s+0\.00\s+0\.00\s+ของแถม\s+\d+\s+((1[12]\d{7}))\s+(.+?)(?=\d+\s+คู่|Z0001|$)')
+        gift_items = set()
+        for m in gift_pat.finditer(full_text):
+            qty, bc, desc_raw = int(m.group(1)), m.group(2), m.group(4).strip()
             if qty <= 0 or qty > 9999: continue
-            if 'Z0001' in bc: continue
             key = (bc, qty)
             if key in seen: continue
-            seen.add(key)
-            # ตัดตัวเลขราคาท้ายออก
+            seen.add(key); gift_items.add(key)
             desc = re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$','',desc_raw).strip()
-            # ตัดเลขลำดับหน้าถ้ามี
             desc = re.sub(r'^\d+\s+','',desc).strip()
             ptype = detect_type(bc)
             subtype = get_subtype(bc, desc)
-            doc['items'].append({'desc':desc,'type':ptype,'subtype':subtype,'qty':qty,'gift':False})
+            doc['items'].append({'desc':desc,'type':ptype,'subtype':subtype,'qty':qty,'gift':True})
+
+        # format ปกติ: barcode desc qty คู่ ...
+        norm_pat = re.compile(r'(?<![\d])((1[12]\d{7}))\s+(.+?)\s+(\d{1,4})\s+คู่(.{0,80}?)(?=(?:1[12]\d{7})|Z0001|$)')
+        for m in norm_pat.finditer(full_text):
+            bc, desc_raw, qty = m.group(1), m.group(3).strip(), int(m.group(4))
+            after = m.group(5) or ''
+            if qty <= 0 or qty > 9999: continue
+            key = (bc, qty)
+            if key in seen: continue
+            seen.add(key)
+            desc = re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$','',desc_raw).strip()
+            desc = re.sub(r'^\d+\s+','',desc).strip()
+            ptype = detect_type(bc)
+            subtype = get_subtype(bc, desc)
+            is_gift = bool(re.search(r'ของแถม', after))
+            if not is_gift:
+                prices = re.findall(r'(\d+\.\d+)', after)
+                if len(prices) >= 2 and float(prices[0]) == 0.0 and float(prices[1]) == 0.0:
+                    is_gift = True
+            doc['items'].append({'desc':desc,'type':ptype,'subtype':subtype,'qty':qty,'gift':is_gift})
 
         if doc['items']:
             docs.append(doc)
-
     return docs
+
 
 def calc_canvas(n): return {'qty':n,'boxes':n//BOX_CANVAS,'rem':n%BOX_CANVAS}
 def calc_foam200(n):

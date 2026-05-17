@@ -64,11 +64,16 @@ def detect_type(barcode):
     return 'other'
 
 def get_subtype(barcode, desc):
+    # ใช้ desc ก่อนถ้ามีข้อมูล
     if '205S' in desc: return '205S'
     if '205R' in desc: return '205R'
     if barcode[:3] == '123' or '213' in desc: return '213'
     if barcode[:3] == '122' or '212' in desc: return '212'
     if '200' in desc: return '200'
+    # fallback: อ่านจาก barcode prefix กรณี desc ว่าง (PDF encoding ทำให้ text หาย)
+    # barcode นันยาง: 1101xx = 205R, 1102xx = 205S
+    if barcode[:4] == '1101': return '205R'
+    if barcode[:4] == '1102': return '205S'
     return desc.split()[0] if desc else 'อื่นๆ'
 
 def extract_lines_from_page(page):

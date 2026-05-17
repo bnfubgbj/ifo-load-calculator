@@ -300,6 +300,10 @@ def parse_pdf(file_bytes):
 
             ptype = detect_type(bc)
             subtype = get_subtype(bc, desc)
+            # ถ้า desc ว่าง (PDF encoding ทำให้หาย) ให้สร้างจาก subtype
+            if not desc:
+                TYPE_LABEL_DESC = {'canvas': 'ผ้าใบ', 'foam200': 'ฟองน้ำ 200', 'foam212': 'ฟองน้ำ 212/213'}
+                desc = f"{TYPE_LABEL_DESC.get(ptype, 'สินค้า')} {subtype}"
             doc['items'].append({
                 'desc': desc,
                 'type': ptype,

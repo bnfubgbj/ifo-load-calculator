@@ -378,8 +378,8 @@ def build_excel(docs):
     tot = defaultdict(int)
     for i, doc in enumerate(docs):
         r = 5 + i
-        # stripe 2 สีสลับแถว — ฟ้าอ่อน / ขาว อ่านง่าย ไม่ฉูดฉาด
-        bg = 'EAF4FB' if i % 2 == 0 else 'FFFFFF'
+        # stripe 2 สีสลับแถว — ขาว / เทาอ่อนมาก
+        bg = 'FFFFFF' if i % 2 == 0 else 'F2F4F6'
 
         canvas_qty = defaultdict(int)
         canvas_gift = defaultdict(int)

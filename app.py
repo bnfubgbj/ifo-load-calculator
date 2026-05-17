@@ -308,27 +308,33 @@ def build_excel(docs):
     ws1 = wb.active; ws1.title='สรุปรายเอกสาร'
 
     # build dynamic columns
-    grp_cols = []  # (start, end, label, header_color, data_color)
-    # info cols A-E
+    grp_cols = []
     grp_cols.append({'sc':1,'ec':5,'label':'ข้อมูลเอกสาร','hc':BLUE,'dc':BLUE,
                      'subs':['วันที่','เลขที่IFO','ชื่อลูกค้า','อำเภอ','จังหวัด']})
     col=6
     for sub in canvas_subs:
-        grp_cols.append({'sc':col,'ec':col+2,'label':f'ผ้าใบ {sub} (12 คู่/กล่อง)','hc':CGH,'dc':CG,
-                         'subs':['คู่','กล่อง','เศษคู่']})
-        col+=3
-    grp_cols.append({'sc':col,'ec':col+3,'label':'ฟองน้ำ 200 (120 คู่/กระสอบ)','hc':CFH,'dc':CF,
-                     'subs':['คู่','โหล','กระสอบ','เศษโหล']})
-    col+=4
+        # ผ้าใบ: ปกติ 3 col + ของแถม 3 col
+        grp_cols.append({'sc':col,'ec':col+5,'label':f'ผ้าใบ {sub} (12 คู่/กล่อง)','hc':CGH,'dc':CG,
+                         'subs':['คู่','กล่อง','เศษ','ของแถม คู่','กล่อง','เศษ'],
+                         'key':f'canvas_{sub}','gift_key':f'canvas_{sub}_gift','type':'canvas'})
+        col+=6
+    # ฟองน้ำ 200: ปกติ 4 col + ของแถม 3 col
+    grp_cols.append({'sc':col,'ec':col+6,'label':'ฟองน้ำ 200 (120 คู่/กระสอบ)','hc':CFH,'dc':CF,
+                     'subs':['คู่','โหล','กระสอบ','เศษโหล','ของแถม คู่','กระสอบ','เศษโหล'],
+                     'key':'foam200','gift_key':'foam200_gift','type':'foam200'})
+    col+=7
     if has212:
-        grp_cols.append({'sc':col,'ec':col+2,'label':'ฟองน้ำ 212 (24 คู่/กล่อง)','hc':C212H,'dc':C212,
-                         'subs':['คู่','กล่อง','เศษโหล']})
-        col+=3
+        grp_cols.append({'sc':col,'ec':col+4,'label':'ฟองน้ำ 212 (24 คู่/กล่อง)','hc':C212H,'dc':C212,
+                         'subs':['คู่','กล่อง','ของแถม คู่','กล่อง','เศษ'],
+                         'key':'foam212','gift_key':'foam212_gift','type':'foam212'})
+        col+=5
     if has213:
-        grp_cols.append({'sc':col,'ec':col+2,'label':'ฟองน้ำ 213 (24 คู่/กล่อง)','hc':C213H,'dc':C213,
-                         'subs':['คู่','กล่อง','เศษโหล']})
-        col+=3
-    grp_cols.append({'sc':col,'ec':col,'label':'รวม','hc':BLUE,'dc':BLUE,'subs':['รวมคู่']})
+        grp_cols.append({'sc':col,'ec':col+4,'label':'ฟองน้ำ 213 (24 คู่/กล่อง)','hc':C213H,'dc':C213,
+                         'subs':['คู่','กล่อง','ของแถม คู่','กล่อง','เศษ'],
+                         'key':'foam213','gift_key':'foam213_gift','type':'foam213'})
+        col+=5
+    grp_cols.append({'sc':col,'ec':col,'label':'รวม','hc':BLUE,'dc':BLUE,'subs':['รวมคู่'],
+                     'key':'total','type':'sum'})
     NCOLS=col
 
     # Row 1: title
@@ -363,27 +369,49 @@ def build_excel(docs):
             if x['type']=='canvas': canvas_qty[x['subtype']]+=x['qty']
         ft2=doc['_ft2']; f212=doc['_ft3_212']; f213=doc['_ft3_213']
         grand=doc['_ct']+ft2+f212+f213
-        for sub in canvas_subs: tot[f'c_{sub}']+=canvas_qty.get(sub,0)
-        tot['ft2']+=ft2; tot['f212']+=f212; tot['f213']+=f213
+        for sub in canvas_subs:
+            tot[f'c_{sub}']+=canvas_qty.get(sub,0)
+            tot[f'cg_{sub}']+=canvas_gift.get(sub,0)
+        tot['ft2']+=ft2; tot['ft2g']+=ft2g
+        tot['f212']+=f212; tot['f212g']+=f212g
+        tot['f213']+=f213; tot['f213g']+=f213g
+
+        # คำนวณ canvas แยก subtype + gift
+        canvas_qty=defaultdict(int); canvas_gift=defaultdict(int)
+        for x in doc['items']:
+            if x['type']=='canvas':
+                if x['gift']: canvas_gift[x['subtype']]+=x['qty']
+                else: canvas_qty[x['subtype']]+=x['qty']
+        ft2=doc['_ft2']; ft2g=doc.get('_ft2_gift',0)
+        f212=doc['_ft3_212']; f212g=doc.get('_ft3_212_gift',0)
+        f213=doc['_ft3_213']; f213g=doc.get('_ft3_213_gift',0)
+        grand=(doc['_ct']+doc.get('_ct_gift',0)+ft2+ft2g+f212+f212g+f213+f213g)
 
         row_vals=[th_date(doc['date']),doc['docId'],doc['customer'],
                   doc.get('amphoe',''),doc.get('province','')]
         row_bgs=[bg]*5
+
         for sub in canvas_subs:
-            ct=canvas_qty.get(sub,0); cc=calc_canvas(ct)
-            row_vals+=[ct or '-',cc['boxes'] or '-',cc['rem'] or '-']
-            row_bgs+=[CG if ct else bg]*3
-        cf2=calc_foam200(ft2)
-        row_vals+=[ft2 or '-',cf2['doz'] or '-',cf2['sacks'] or '-',cf2['rem_doz'] or '-']
-        row_bgs+=[CF if ft2 else bg]*4
+            ct=canvas_qty.get(sub,0); cg=canvas_gift.get(sub,0)
+            cc=calc_canvas(ct); gc=calc_canvas(cg)
+            row_vals+=[ct or '-',cc['boxes'] or '-',cc['rem'] or '-',
+                       cg or '-',gc['boxes'] or '-',gc['rem'] or '-']
+            row_bgs+=[CG if ct else bg]*3+[CGIFT if cg else bg]*3
+
+        cf2=calc_foam200(ft2); gf2=calc_foam200(ft2g)
+        row_vals+=[ft2 or '-',cf2['doz'] or '-',cf2['sacks'] or '-',cf2['rem_doz'] or '-',
+                   ft2g or '-',gf2['sacks'] or '-',gf2['rem_doz'] or '-']
+        row_bgs+=[CF if ft2 else bg]*4+[CGIFT if ft2g else bg]*3
+
         if has212:
-            c2=calc_foam212(f212)
-            row_vals+=[f212 or '-',c2['boxes'] or '-',c2['rem_doz'] or '-']
-            row_bgs+=[C212 if f212 else bg]*3
+            c2=calc_foam212(f212); g2=calc_foam212(f212g)
+            row_vals+=[f212 or '-',c2['boxes'] or '-',f212g or '-',g2['boxes'] or '-',c2['rem_doz'] or '-']
+            row_bgs+=[C212 if f212 else bg]*2+[CGIFT if f212g else bg]*2+[bg]
         if has213:
-            c3=calc_foam212(f213)
-            row_vals+=[f213 or '-',c3['boxes'] or '-',c3['rem_doz'] or '-']
-            row_bgs+=[C213 if f213 else bg]*3
+            c3=calc_foam212(f213); g3=calc_foam212(f213g)
+            row_vals+=[f213 or '-',c3['boxes'] or '-',f213g or '-',g3['boxes'] or '-',c3['rem_doz'] or '-']
+            row_bgs+=[C213 if f213 else bg]*2+[CGIFT if f213g else bg]*2+[bg]
+
         row_vals+=[grand]; row_bgs+=['D6E4F0']
 
         for ci,(val,bgc) in enumerate(zip(row_vals,row_bgs),1):
@@ -399,21 +427,28 @@ def build_excel(docs):
     mwrite(ws1,sr,1,sr,5,'รวมทั้งหมด',font=hf(11),fill=fl(BLUE),align=al())
     ci=6
     for sub in canvas_subs:
-        cc=calc_canvas(tot[f'c_{sub}'])
-        for v in [tot[f'c_{sub}'] or '-',cc['boxes'] or '-',cc['rem'] or '-']:
+        cc=calc_canvas(tot.get(f'c_{sub}',0)); gc=calc_canvas(tot.get(f'cg_{sub}',0))
+        ct=tot.get(f'c_{sub}',0); cg=tot.get(f'cg_{sub}',0)
+        for v in [ct or '-',cc['boxes'] or '-',cc['rem'] or '-',
+                  cg or '-',gc['boxes'] or '-',gc['rem'] or '-']:
             wcell(ws1,sr,ci,v,font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr); ci+=1
-    cf2=calc_foam200(tot['ft2'])
-    for v in [tot['ft2'] or '-',cf2['doz'] or '-',cf2['sacks'] or '-',cf2['rem_doz'] or '-']:
+    cf2=calc_foam200(tot.get('ft2',0)); gf2=calc_foam200(tot.get('ft2g',0))
+    for v in [tot.get('ft2',0) or '-',cf2['doz'] or '-',cf2['sacks'] or '-',cf2['rem_doz'] or '-',
+              tot.get('ft2g',0) or '-',gf2['sacks'] or '-',gf2['rem_doz'] or '-']:
         wcell(ws1,sr,ci,v,font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr); ci+=1
     if has212:
-        c2=calc_foam212(tot['f212'])
-        for v in [tot['f212'] or '-',c2['boxes'] or '-',c2['rem_doz'] or '-']:
+        c2=calc_foam212(tot.get('f212',0)); g2=calc_foam212(tot.get('f212g',0))
+        for v in [tot.get('f212',0) or '-',c2['boxes'] or '-',
+                  tot.get('f212g',0) or '-',g2['boxes'] or '-',c2['rem_doz'] or '-']:
             wcell(ws1,sr,ci,v,font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr); ci+=1
     if has213:
-        c3=calc_foam212(tot['f213'])
-        for v in [tot['f213'] or '-',c3['boxes'] or '-',c3['rem_doz'] or '-']:
+        c3=calc_foam212(tot.get('f213',0)); g3=calc_foam212(tot.get('f213g',0))
+        for v in [tot.get('f213',0) or '-',c3['boxes'] or '-',
+                  tot.get('f213g',0) or '-',g3['boxes'] or '-',c3['rem_doz'] or '-']:
             wcell(ws1,sr,ci,v,font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr); ci+=1
-    wcell(ws1,sr,ci,sum(tot.values()),font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr)
+    grand_tot = sum(tot.get(k,0) for k in ['ft2','ft2g','f212','f212g','f213','f213g'])
+    grand_tot += sum(tot.get(f'c_{s}',0)+tot.get(f'cg_{s}',0) for s in canvas_subs)
+    wcell(ws1,sr,ci,grand_tot,font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr)
     ws1.row_dimensions[sr].height=24
 
     # col widths sheet1

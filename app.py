@@ -34,18 +34,14 @@ def th_date(s):
     except: return s
 
 def norm(s):
-    """แก้ตัวอักษรไทยที่ PDF font encoding ทำให้เพี้ยน"""
     if not s: return s
-    # แก้ pattern พื้นฐาน: สระ/วรรณยุกต์เคลื่อน
-    s = re.sub(r'า้', 'า้', s)   # normalize
+    s = re.sub(r'า้', 'า้', s)
     fixes = [
-        # สระ/วรรณยุกต์หลุด — แก้ก่อนทุกอย่าง
         (r'ตน้ ', 'ต้น '),
         (r'รา้น', 'ร้าน'), (r'บา้น', 'บ้าน'), (r'นา้', 'น้ำ'),
         (r'ทา่ ', 'ท่า'), (r'คา้', 'ค้า'), (r'ผา้', 'ผ้า'),
         (r'หนา้', 'หน้า'), (r'ลา้', 'ล้า'), (r'ขา้', 'ข้า'),
         (r'ขา่ ', 'ข่า'), (r'รา่ ', 'ร่า'),
-        # ตัวอักษรสลับที่
         (r'พรพมิ ล', 'พรพิมล'),
         (r'วาสนา จางนะ', 'วาสนา จางนะ'),
         (r'จอมแจง้', 'จอมแจ้ง'),
@@ -62,7 +58,6 @@ def norm(s):
         (r'บรษิ ทั ', 'บริษัท '), (r'บรษิัท', 'บริษัท'),
         (r'จาํ กดั', 'จำกัด'), (r'จํากดั', 'จำกัด'),
         (r'คณุ ', 'คุณ '), (r'คณุ$', 'คุณ'),
-        # จังหวัด
         (r'ชลบรุ ี', 'ชลบุรี'), (r'ชลบรีุ', 'ชลบุรี'),
         (r'สระบรุ ี', 'สระบุรี'),
         (r'เพชรบรุ ี', 'เพชรบุรี'),
@@ -73,7 +68,6 @@ def norm(s):
         (r'เชยี งราย', 'เชียงราย'), (r'เชยงราย ี', 'เชียงราย'),
         (r'ภเูก็ต', 'ภูเก็ต'),
         (r'ระยอง', 'ระยอง'),
-        # อำเภอ
         (r'ทา่ ยาง', 'ท่ายาง'),
         (r'สบเมย', 'สบเมย'),
         (r'บา้นสวน', 'บ้านสวน'),
@@ -81,7 +75,6 @@ def norm(s):
         (r'โพนพสิ ัย', 'โพนพิสัย'),
         (r'อู่ทอง', 'อู่ทอง'),
         (r'ขาณวุรลักษบรุ ี', 'ขาณุวรลักษบุรี'),
-        # ชื่อร้าน
         (r'ซปุ เปอร์', 'ซุปเปอร์'),
         (r'ไทยนยิ ม', 'ไทยนิยม'),
         (r'กําไลบตู คิ', 'กำไลบูติก'),
@@ -89,7 +82,6 @@ def norm(s):
         (r'แคลว้', 'แคล้ว'),
         (r'อยีมเจรญิ', 'อ้ยีมเจริญ'),
         (r'ปัญชรัสมิ', 'ปัญชรัสมิ์'),
-        # misc
         (r'\s+', ' '),
     ]
     for p, r in fixes:
@@ -113,7 +105,6 @@ def get_subtype(barcode, desc):
     return desc.split()[0] if desc else 'อื่นๆ'
 
 def extract_header_lines(page):
-    """ใช้ extract_words สำหรับ header — ตัวอักษรถูกต้อง"""
     words = page.extract_words(x_tolerance=3, y_tolerance=3)
     rows = {}
     for w in words:
@@ -128,7 +119,6 @@ def extract_header_lines(page):
     return lines
 
 def parse_pdf(file_bytes):
-    """Parse PDF — header ใช้ extract_words (ถูกต้อง), items ใช้ extract_text (เร็ว)"""
     page_data = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
@@ -165,7 +155,6 @@ def parse_pdf(file_bytes):
         lines = g['hlines']
         full_text = g['text']
 
-        # date จาก header lines
         pat = r'(\d{1,2})\s+(' + '|'.join(re.escape(k) for k in MONTH_MAP) + r')\s+(\d{4})'
         for line in lines[:15]:
             m = re.search(pat, line)
@@ -175,14 +164,12 @@ def parse_pdf(file_bytes):
                 doc['date'] = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
                 break
 
-        # customer จาก header lines (extract_words ถูกต้อง)
         for line in lines[:20]:
             m = re.search(r'ช\S*\s+ล\S*\s+ค\S*\s*:\s*(.+?)(?:\s+ว\S*\s+ท|$)', line)
             if m:
                 doc['customer'] = norm(m.group(1).strip())
                 break
 
-        # province & amphoe จาก header lines
         for line in lines[:15]:
             mp = re.search(r'จ\.([ก-๙]+(?:\s+[ก-๙]+)?)', line)
             ma = re.search(r'อ\.([ก-๙]+(?:\s+[ก-๙]+)?)(?:\s+จ\.)?', line)
@@ -190,13 +177,8 @@ def parse_pdf(file_bytes):
             if ma: doc['amphoe'] = norm(re.sub(r'\s*จ$','',re.sub(r'\d+.*','',ma.group(1)).strip()).strip())
             if doc['province']: break
 
-        # items จาก full_text
-        # รองรับ 2 format:
-        # ปกติ:  <bc> <desc> <qty> คู่ <ราคา> <ส่วนลด> <รวม>
-        # แถม:   <qty> คู่ 0.00 0.00 ของแถม <ลำดับ> <bc> <desc>
         seen = set()
 
-        # format ของแถม: qty คู่ 0.00 0.00 ของแถม ... barcode desc
         gift_pat = re.compile(r'(\d{1,4})\s+คู่\s+0\.00\s+0\.00\s+ของแถม\s+\d+\s+((1[12]\d{7}))\s+(.+?)(?=\d+\s+คู่|Z0001|$)')
         gift_items = set()
         for m in gift_pat.finditer(full_text):
@@ -211,7 +193,6 @@ def parse_pdf(file_bytes):
             subtype = get_subtype(bc, desc)
             doc['items'].append({'desc':desc,'type':ptype,'subtype':subtype,'qty':qty,'gift':True})
 
-        # format ปกติ: barcode desc qty คู่ ...
         norm_pat = re.compile(r'(?<![\d])((1[12]\d{7}))\s+(.+?)\s+(\d{1,4})\s+คู่(.{0,80}?)(?=(?:1[12]\d{7})|Z0001|$)')
         for m in norm_pat.finditer(full_text):
             bc, desc_raw, qty = m.group(1), m.group(3).strip(), int(m.group(4))
@@ -257,10 +238,10 @@ def build_excel(docs):
 
     # ── Colors & Styles ──
     BLUE='1B4F8A'; WHITE='FFFFFF'
-    CG='E2EFDA'; CGH='375623'      # ผ้าใบ
-    CF='DBEAFE'; CFH='1E3A8A'      # ฟองน้ำ 200
-    C212='D0E4FF'; C212H='1E40AF'  # ฟองน้ำ 212
-    C213='EDE9FE'; C213H='5B21B6'  # ฟองน้ำ 213
+    CG='E2EFDA'; CGH='375623'
+    CF='DBEAFE'; CFH='1E3A8A'
+    C212='D0E4FF'; C212H='1E40AF'
+    C213='EDE9FE'; C213H='5B21B6'
     CGIFT='FFF9C4'; CALT='F5F8FA'
 
     thin=Side(style='thin',color='BBBBBB')
@@ -307,18 +288,15 @@ def build_excel(docs):
     # ══════════════════════════════════════════
     ws1 = wb.active; ws1.title='สรุปรายเอกสาร'
 
-    # build dynamic columns
     grp_cols = []
     grp_cols.append({'sc':1,'ec':5,'label':'ข้อมูลเอกสาร','hc':BLUE,'dc':BLUE,
                      'subs':['วันที่','เลขที่IFO','ชื่อลูกค้า','อำเภอ','จังหวัด']})
     col=6
     for sub in canvas_subs:
-        # ผ้าใบ: ปกติ 3 col + ของแถม 3 col
         grp_cols.append({'sc':col,'ec':col+5,'label':f'ผ้าใบ {sub} (12 คู่/กล่อง)','hc':CGH,'dc':CG,
                          'subs':['คู่','กล่อง','เศษ','ของแถม คู่','กล่อง','เศษ'],
                          'key':f'canvas_{sub}','gift_key':f'canvas_{sub}_gift','type':'canvas'})
         col+=6
-    # ฟองน้ำ 200: ปกติ 4 col + ของแถม 3 col
     grp_cols.append({'sc':col,'ec':col+6,'label':'ฟองน้ำ 200 (120 คู่/กระสอบ)','hc':CFH,'dc':CF,
                      'subs':['คู่','โหล','กระสอบ','เศษโหล','ของแถม คู่','กระสอบ','เศษโหล'],
                      'key':'foam200','gift_key':'foam200_gift','type':'foam200'})
@@ -337,19 +315,15 @@ def build_excel(docs):
                      'key':'total','type':'sum'})
     NCOLS=col
 
-    # Row 1: title
     mwrite(ws1,1,1,1,NCOLS,'สรุปโหลดสินค้า — บริษัท นันยางมาร์เก็ตติ้ง จำกัด',
            font=hf(14),fill=fl(BLUE),align=al())
     ws1.row_dimensions[1].height=28
-    # Row 2: date
     mwrite(ws1,2,1,2,NCOLS,f'พิมพ์: {datetime.now().strftime("%d/%m/%Y %H:%M")}',
            font=nf(10),align=al('right'))
     ws1.row_dimensions[2].height=16
-    # Row 3: group headers
     for g in grp_cols:
         mwrite(ws1,3,g['sc'],3,g['ec'],g['label'],font=hf(11),fill=fl(g['hc']),align=al())
     ws1.row_dimensions[3].height=22
-    # Row 4: sub headers
     col_idx=1
     col_dc_map={}
     for g in grp_cols:
@@ -359,24 +333,13 @@ def build_excel(docs):
             col_idx+=1
     ws1.row_dimensions[4].height=34
 
-    # Data rows
+    # ── Data rows ──
     tot=defaultdict(int)
     for i,doc in enumerate(docs):
         r=5+i
         bg='FFFFFF' if i%2==0 else CALT
-        canvas_qty=defaultdict(int)
-        for x in doc['items']:
-            if x['type']=='canvas': canvas_qty[x['subtype']]+=x['qty']
-        ft2=doc['_ft2']; f212=doc['_ft3_212']; f213=doc['_ft3_213']
-        grand=doc['_ct']+ft2+f212+f213
-        for sub in canvas_subs:
-            tot[f'c_{sub}']+=canvas_qty.get(sub,0)
-            tot[f'cg_{sub}']+=canvas_gift.get(sub,0)
-        tot['ft2']+=ft2; tot['ft2g']+=ft2g
-        tot['f212']+=f212; tot['f212g']+=f212g
-        tot['f213']+=f213; tot['f213g']+=f213g
 
-        # คำนวณ canvas แยก subtype + gift
+        # ── คำนวณ canvas/foam แยก gift (define ก่อนใช้ทุกกรณี) ──
         canvas_qty=defaultdict(int); canvas_gift=defaultdict(int)
         for x in doc['items']:
             if x['type']=='canvas':
@@ -386,6 +349,14 @@ def build_excel(docs):
         f212=doc['_ft3_212']; f212g=doc.get('_ft3_212_gift',0)
         f213=doc['_ft3_213']; f213g=doc.get('_ft3_213_gift',0)
         grand=(doc['_ct']+doc.get('_ct_gift',0)+ft2+ft2g+f212+f212g+f213+f213g)
+
+        # ── สะสม totals ──
+        for sub in canvas_subs:
+            tot[f'c_{sub}']+=canvas_qty.get(sub,0)
+            tot[f'cg_{sub}']+=canvas_gift.get(sub,0)
+        tot['ft2']+=ft2; tot['ft2g']+=ft2g
+        tot['f212']+=f212; tot['f212g']+=f212g
+        tot['f213']+=f213; tot['f213g']+=f213g
 
         row_vals=[th_date(doc['date']),doc['docId'],doc['customer'],
                   doc.get('amphoe',''),doc.get('province','')]
@@ -451,12 +422,11 @@ def build_excel(docs):
     wcell(ws1,sr,ci,grand_tot,font=hf(11),fill=fl(BLUE),align=al('center'),border=bdr)
     ws1.row_dimensions[sr].height=24
 
-    # col widths sheet1
     base_w=[12,14,26,12,14]
-    for _ in canvas_subs: base_w+=[8,8,8]
-    base_w+=[8,8,10,10]
-    if has212: base_w+=[8,8,8]
-    if has213: base_w+=[8,8,8]
+    for _ in canvas_subs: base_w+=[8,8,8,8,8,8]
+    base_w+=[8,8,10,10,8,10,10]
+    if has212: base_w+=[8,8,8,8,8]
+    if has213: base_w+=[8,8,8,8,8]
     base_w+=[10]
     for ci,w in enumerate(base_w,1):
         ws1.column_dimensions[get_column_letter(ci)].width=w
@@ -470,7 +440,6 @@ def build_excel(docs):
            font=hf(13),fill=fl(BLUE),align=al())
     ws2.row_dimensions[1].height=26
 
-    # summary boxes row 3-4
     blocks=[]
     for sub in canvas_subs:
         ct=tot[f'c_{sub}']; cc=calc_canvas(ct)
@@ -496,7 +465,6 @@ def build_excel(docs):
         col+=2
     ws2.row_dimensions[3].height=22; ws2.row_dimensions[4].height=26
 
-    # breakdown table
     r=6
     mwrite(ws2,r,1,r,8,'รายละเอียดตามชนิดสินค้า (รวมทุก IFO)',font=hf(12),fill=fl(BLUE),align=al())
     ws2.row_dimensions[r].height=22; r+=1
@@ -506,7 +474,6 @@ def build_excel(docs):
         wcell(ws2,r,ci,h,font=hf(11),fill=fl(BLUE),align=al(),border=bdr)
     ws2.row_dimensions[r].height=22; r+=1
 
-    TYPE_UNIT={'canvas':'กล่อง','foam200':'กระสอบ','foam212':'กล่อง'}
     subtype_data=defaultdict(lambda:defaultdict(int))
     for doc in docs:
         for x in doc['items']:
@@ -525,9 +492,9 @@ def build_excel(docs):
         if ptype=='canvas':
             cc=calc_canvas(qty); pack=cc['boxes']; rem_doz='-'; rem_pair=cc['rem'] or '-'; unit='กล่อง'; dc=CGIFT if gift else CG
         elif ptype=='foam200':
-            cf=calc_foam200(qty); pack=cf['sacks']; rem_doz=cf['rem_doz'] or '-'; rem_pair=cf['rem_pairs'] if 'rem_pairs' in cf else '-'; unit='กระสอบ'; dc=CGIFT if gift else CF
+            cf=calc_foam200(qty); pack=cf['sacks']; rem_doz=cf['rem_doz'] or '-'; rem_pair='-'; unit='กระสอบ'; dc=CGIFT if gift else CF
         else:
-            cf=calc_foam212(qty); pack=cf['boxes']; rem_doz=cf['rem_doz'] or '-'; rem_pair=cf['rem'] if 'rem' in cf else '-'; unit='กล่อง'
+            cf=calc_foam212(qty); pack=cf['boxes']; rem_doz=cf['rem_doz'] or '-'; rem_pair='-'; unit='กล่อง'
             dc=(CGIFT if gift else (C212 if sub=='212' else C213))
         row_v=[sub,'ของแถม' if gift else 'ปกติ',qty,doz,pack,rem_doz,rem_pair,unit]
         for ci,v in enumerate(row_v,1):
@@ -614,7 +581,6 @@ if uploaded:
         tot_212=sum(d['_ft3_212'] for d in docs)
         tot_213=sum(d['_ft3_213'] for d in docs)
 
-        # metrics
         canvas_subs_all=defaultdict(int)
         for d in docs:
             for x in d['items']:
@@ -651,7 +617,6 @@ if uploaded:
                 if doc['_ft3_213']:
                     c3=calc_foam212(doc['_ft3_213'])
                     st.info(f"🔵 **ฟองน้ำ 213:** {doc['_ft3_213']} คู่ / {c3['boxes']} กล่อง")
-                # ของแถม
                 gift_total = doc.get('_ct_gift',0)+doc.get('_ft2_gift',0)+doc.get('_ft3_212_gift',0)+doc.get('_ft3_213_gift',0)
                 if gift_total:
                     parts = []

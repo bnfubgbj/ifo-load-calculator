@@ -238,12 +238,53 @@ def parse_pdf(file_bytes):
                 break
 
         # จังหวัด / อำเภอ
+        # จังหวัดที่ปรากฏในที่อยู่โดยไม่มี "จ." นำหน้า
+        PROVINCE_DIRECT = {
+            'ประจวบครี ขี ันธ': 'ประจวบคีรีขันธ์',
+            'ประจวบครี ขี ันธ์': 'ประจวบคีรีขันธ์',
+            'หนองคาย': 'หนองคาย',
+            'กําแพงเพชร': 'กำแพงเพชร',
+            'กำแพงเพชร': 'กำแพงเพชร',
+            'กรุงเทพมหานคร': 'กรุงเทพมหานคร',
+            'กรุงเทพฯ': 'กรุงเทพมหานคร',
+        }
+        # เขต → ใช้เป็น amphoe สำหรับกรุงเทพ
+        AMPHOE_DIRECT = {
+            'เขตสัมพนั ธวงศ': 'สัมพันธวงศ์',
+            'เขตสัมพันธวงศ์': 'สัมพันธวงศ์',
+            'เขตบางรัก': 'บางรัก',
+            'เขตพระนคร': 'พระนคร',
+        }
         for line in all_lines[:20]:
             mp = re.search(r'จ\.([ก-๙A-Za-z]+(?:\s+[ก-๙A-Za-z]+)?)', line)
             ma = re.search(r'อ\.([ก-๙A-Za-z]+(?:\s+[ก-๙A-Za-z]+)?)(?:\s+จ\.)?', line)
             if mp: doc['province'] = norm(re.sub(r'\d+.*', '', mp.group(1)).strip())
             if ma: doc['amphoe'] = norm(re.sub(r'\s*จ$', '', re.sub(r'\d+.*', '', ma.group(1)).strip()).strip())
-            if doc['province']: break
+            # fallback: หาจังหวัดจากชื่อตรงในบรรทัดที่อยู่
+            if not doc['province']:
+                for kw, pv in PROVINCE_DIRECT.items():
+                    if kw in line:
+                        doc['province'] = pv
+                        break
+            # fallback: หา amphoe จาก "เขต" (กรุงเทพ)
+            if not doc['amphoe']:
+                for kw, av in AMPHOE_DIRECT.items():
+                    if kw in line:
+                        doc['amphoe'] = av
+                        break
+            if doc['province'] and doc['amphoe']: break
+        # fallback กรุงเทพ: ถ้าเจอเขต แต่ยังไม่เจอจังหวัด
+        if not doc['province']:
+            for line in all_lines[:20]:
+                if 'กรุงเทพมหานคร' in line or 'กรงุ เทพมหานคร' in line or 'กรุงเทพฯ' in line or 'กรงุ เทพฯ' in line:
+                    doc['province'] = 'กรุงเทพมหานคร'
+                    # หา amphoe จากบรรทัดเดียวกัน
+                    if not doc['amphoe']:
+                        for kw, av in AMPHOE_DIRECT.items():
+                            if kw in line:
+                                doc['amphoe'] = av
+                                break
+                    break
 
         # รายการสินค้า: parse ทีละแถว — ไม่มีปัญหา header ข้ามหน้า
         seen_keys = set()

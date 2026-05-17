@@ -378,18 +378,8 @@ def build_excel(docs):
     tot = defaultdict(int)
     for i, doc in enumerate(docs):
         r = 5 + i
-        # palette สีอ่อนๆ หมุนเวียนตาม IFO — ไม่ฉูดฉาด อ่านง่าย
-        ROW_PALETTE = [
-            'EAF4FB',  # ฟ้าอ่อน
-            'EAF7F0',  # เขียวอ่อน
-            'FEF9EC',  # เหลืองอ่อน
-            'F3EEFB',  # ม่วงอ่อน
-            'FEF0EC',  # ส้มอ่อน
-            'E8F8F5',  # เขียวมิ้นท์
-            'FDF2F8',  # ชมพูอ่อน
-            'EBF5FB',  # ฟ้าเทา
-        ]
-        bg = ROW_PALETTE[i % len(ROW_PALETTE)]
+        # stripe 2 สีสลับแถว — ฟ้าอ่อน / ขาว อ่านง่าย ไม่ฉูดฉาด
+        bg = 'EAF4FB' if i % 2 == 0 else 'FFFFFF'
 
         canvas_qty = defaultdict(int)
         canvas_gift = defaultdict(int)

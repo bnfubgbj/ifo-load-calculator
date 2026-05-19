@@ -125,7 +125,8 @@ def detect_type(barcode):
     p = barcode[:3]
     if barcode[:2] == '11': return 'canvas'
     if p in ('122','123'): return 'foam212'
-    if p in ('120','121'): return 'foam200'
+    if p == '121': return 'nature'   # ฟองน้ำ Nature
+    if p == '120': return 'foam200'
     return 'other'
 
 def get_subtype(barcode, desc):
@@ -136,10 +137,11 @@ def get_subtype(barcode, desc):
     if barcode[:3] == '122' or '212' in desc: return '212'
     if '200' in desc: return '200'
     # fallback: อ่านจาก barcode prefix กรณี desc ว่าง (PDF encoding ทำให้ text หาย)
-    # ผ้าใบนันยาง: 1100xx=205S, 1101xx=205R, 1102xx=205S, 1103xx=205S
+    # ผ้าใบนันยาง: 1100xx=205S, 1101xx=205R, 1102xx=121Z, 1103xx=205S
     if barcode[:2] == '11':
         if barcode[:4] == '1101': return '205R'
-        return '205S'  # 1100, 1102, 1103 = 205S ทั้งหมด
+        if barcode[:4] == '1102': return '121Z'   # ผ้าใบ 121-Z
+        return '205S'  # 1100, 1103 = 205S
     # ฟองน้ำ: 120xxx=200, 122xxx=212, 123xxx=213
     if barcode[:3] == '120': return '200'
     if barcode[:3] == '122': return '212'
@@ -353,6 +355,8 @@ def agg(doc):
     doc['_ft3_213']      = sum(x['qty'] for x in doc['items'] if x['type'] == 'foam212' and x['subtype'] == '213' and not x['gift'])
     doc['_ft3_212_gift'] = sum(x['qty'] for x in doc['items'] if x['type'] == 'foam212' and x['subtype'] == '212' and x['gift'])
     doc['_ft3_213_gift'] = sum(x['qty'] for x in doc['items'] if x['type'] == 'foam212' and x['subtype'] == '213' and x['gift'])
+    doc['_nature']       = sum(x['qty'] for x in doc['items'] if x['type'] == 'nature' and not x['gift'])
+    doc['_nature_gift']  = sum(x['qty'] for x in doc['items'] if x['type'] == 'nature' and x['gift'])
 
 def build_excel(docs):
     wb = Workbook()
@@ -363,6 +367,7 @@ def build_excel(docs):
     C212='D0E4FF'; C212H='1E40AF'
     C213='EDE9FE'; C213H='5B21B6'
     CGIFT='FFF9C4'; CALT='F5F8FA'
+    CNAT='F0FFF4'; CNATH='276749'   # ฟองน้ำ Nature — เขียวเข้ม
 
     thin = Side(style='thin', color='BBBBBB')
     bdr = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -398,6 +403,7 @@ def build_excel(docs):
     canvas_subs = sorted(set(x['subtype'] for d in docs for x in d['items'] if x['type'] == 'canvas'))
     has212 = any(x['subtype'] == '212' for d in docs for x in d['items'] if x['type'] == 'foam212')
     has213 = any(x['subtype'] == '213' for d in docs for x in d['items'] if x['type'] == 'foam212')
+    has_nature = any(x['type'] == 'nature' for d in docs for x in d['items'])
 
     # ══ SHEET 1 ══
     ws1 = wb.active; ws1.title = 'สรุปรายเอกสาร'
@@ -421,6 +427,10 @@ def build_excel(docs):
         grp_cols.append({'sc':col,'ec':col+4,'label':'ฟองน้ำ 213 (24 คู่/กล่อง)','hc':C213H,'dc':C213,
                          'subs':['คู่','กล่อง','ของแถม คู่','กล่อง','เศษ']})
         col += 5
+    if has_nature:
+        grp_cols.append({'sc':col,'ec':col+3,'label':'ฟองน้ำ Nature (120 คู่/กระสอบ)','hc':CNATH,'dc':CNAT,
+                         'subs':['คู่','กระสอบ','ของแถม คู่','กระสอบ']})
+        col += 4
     grp_cols.append({'sc':col,'ec':col,'label':'รวม','hc':BLUE,'dc':BLUE,'subs':['รวมคู่']})
     NCOLS = col
 
@@ -463,6 +473,8 @@ def build_excel(docs):
         tot['ft2']  += ft2;  tot['ft2g']  += ft2g
         tot['f212'] += f212; tot['f212g'] += f212g
         tot['f213'] += f213; tot['f213g'] += f213g
+        nat  = doc.get('_nature', 0);  natg = doc.get('_nature_gift', 0)
+        tot['nat'] += nat; tot['natg'] += natg
 
         row_vals = [th_date(doc['date']), doc['docId'], doc['customer'],
                     doc.get('amphoe',''), doc.get('province','')]
@@ -488,6 +500,11 @@ def build_excel(docs):
             c3 = calc_foam212(f213); g3 = calc_foam212(f213g)
             row_vals += [f213 or '-', c3['boxes'] or '-', f213g or '-', g3['boxes'] or '-', c3['rem_doz'] or '-']
             row_bgs  += [C213 if f213 else bg]*2 + [CGIFT if f213g else bg]*2 + [bg]
+
+        if has_nature:
+            cn = calc_foam200(nat); gn = calc_foam200(natg)
+            row_vals += [nat or '-', cn['sacks'] or '-', natg or '-', gn['sacks'] or '-']
+            row_bgs  += [CNAT if nat else bg]*2 + [CGIFT if natg else bg]*2
 
         row_vals += [grand]; row_bgs += ['D6E4F0']
 
@@ -522,7 +539,12 @@ def build_excel(docs):
         for v in [tot.get('f213',0) or '-', c3['boxes'] or '-',
                   tot.get('f213g',0) or '-', g3['boxes'] or '-', c3['rem_doz'] or '-']:
             wcell(ws1, sr, ci, v, font=hf(11), fill=fl(BLUE), align=al('center'), border=bdr); ci += 1
-    grand_tot = sum(tot.get(k,0) for k in ['ft2','ft2g','f212','f212g','f213','f213g'])
+    if has_nature:
+        cn = calc_foam200(tot.get('nat',0)); gn = calc_foam200(tot.get('natg',0))
+        for v in [tot.get('nat',0) or '-', cn['sacks'] or '-',
+                  tot.get('natg',0) or '-', gn['sacks'] or '-']:
+            wcell(ws1, sr, ci, v, font=hf(11), fill=fl(BLUE), align=al('center'), border=bdr); ci += 1
+    grand_tot = sum(tot.get(k,0) for k in ['ft2','ft2g','f212','f212g','f213','f213g','nat','natg'])
     grand_tot += sum(tot.get(f'c_{s}',0) + tot.get(f'cg_{s}',0) for s in canvas_subs)
     wcell(ws1, sr, ci, grand_tot, font=hf(11), fill=fl(BLUE), align=al('center'), border=bdr)
     ws1.row_dimensions[sr].height = 24
@@ -532,6 +554,7 @@ def build_excel(docs):
     base_w += [8,8,10,10,8,10,10]
     if has212: base_w += [8,8,8,8,8]
     if has213: base_w += [8,8,8,8,8]
+    if has_nature: base_w += [8,10,8,10]
     base_w += [10]
     for ci, w in enumerate(base_w, 1):
         ws1.column_dimensions[get_column_letter(ci)].width = w
@@ -695,6 +718,8 @@ if uploaded:
         metric_items.append(("🔵 ฟองน้ำ 200", f"{tot_f} คู่"))
         if tot_212: metric_items.append(("🔵 ฟองน้ำ 212", f"{tot_212} คู่"))
         if tot_213: metric_items.append(("🔵 ฟองน้ำ 213", f"{tot_213} คู่"))
+        tot_nature = sum(d.get('_nature',0) for d in docs)
+        if tot_nature: metric_items.append(("🌿 ฟองน้ำ Nature", f"{tot_nature} คู่"))
 
         cols = st.columns(len(metric_items))
         for i, (label, val) in enumerate(metric_items):
@@ -721,6 +746,9 @@ if uploaded:
                 if doc['_ft3_213']:
                     c3 = calc_foam212(doc['_ft3_213'])
                     st.info(f"🔵 **ฟองน้ำ 213:** {doc['_ft3_213']} คู่ / {c3['boxes']} กล่อง")
+                if doc.get('_nature',0):
+                    cn = calc_foam200(doc['_nature'])
+                    st.info(f"🌿 **ฟองน้ำ Nature:** {doc['_nature']} คู่ / {cn['sacks']} กระสอบ" + (f" เศษ {cn['rem_doz']} โหล" if cn['rem_doz'] else ""))
 
                 gift_total = (doc.get('_ct_gift',0) + doc.get('_ft2_gift',0) +
                               doc.get('_ft3_212_gift',0) + doc.get('_ft3_213_gift',0))
@@ -738,6 +766,9 @@ if uploaded:
                     if doc.get('_ft3_213_gift'):
                         g3 = calc_foam212(doc['_ft3_213_gift'])
                         parts.append(f"ฟองน้ำ213 {doc['_ft3_213_gift']} คู่ / {g3['boxes']} กล่อง")
+                    if doc.get('_nature_gift'):
+                        gn = calc_foam200(doc['_nature_gift'])
+                        parts.append(f"Nature {doc['_nature_gift']} คู่ / {gn['sacks']} กระสอบ")
                     st.warning(f"🎁 **ของแถม:** {' | '.join(parts)}")
 
         excel = build_excel(docs)

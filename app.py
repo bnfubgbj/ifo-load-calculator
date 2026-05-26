@@ -262,11 +262,11 @@ def parse_item_line(line):
     bc = m.group(1)
 
     # qty: ตัวเลขก่อน "คู่" รองรับ comma เช่น 1,200
-    mq = re.search(r'(\d{1,3}(?:,\d{3})?)\s+คู่', line)
+    mq = re.search(r'(\d{1,3}(?:,\d{3}){0,2})\s+คู่', line)
     if not mq:
         return None
     qty = int(mq.group(1).replace(',', ''))
-    if qty <= 0 or qty > 9999:
+    if qty <= 0 or qty > 999999:
         return None
 
     # desc: ข้อความระหว่าง barcode กับ qty

@@ -2,6 +2,27 @@ import streamlit as st
 import pdfplumber
 import re
 import io
+from pypdf import PdfReader, PdfWriter
+from reportlab.pdfgen import canvas as rl_canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import os, urllib.request
+
+# โหลด Thai font สำหรับ PDF output
+def _ensure_thai_font():
+    font_path = '/tmp/Sarabun-Regular.ttf'
+    bold_path = '/tmp/Sarabun-Bold.ttf'
+    if not os.path.exists(font_path):
+        urllib.request.urlretrieve(
+            'https://github.com/google/fonts/raw/main/ofl/sarabun/Sarabun-Regular.ttf', font_path)
+    if not os.path.exists(bold_path):
+        urllib.request.urlretrieve(
+            'https://github.com/google/fonts/raw/main/ofl/sarabun/Sarabun-Bold.ttf', bold_path)
+    try:
+        pdfmetrics.registerFont(TTFont('Sarabun', font_path))
+        pdfmetrics.registerFont(TTFont('Sarabun-Bold', bold_path))
+    except Exception:
+        pass
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -454,6 +475,147 @@ def agg(doc):
     doc['_nature']       = sum(x['qty'] for x in doc['items'] if x['type'] == 'nature' and not x['gift'])
     doc['_nature_gift']  = sum(x['qty'] for x in doc['items'] if x['type'] == 'nature' and x['gift'])
 
+def build_pdf_with_summary(file_bytes, doc):
+    """เพิ่มสรุปโหลดสินค้าด้านล่างของ PDF ต้นฉบับ"""
+    _ensure_thai_font()
+
+    # อ่าน PDF ต้นฉบับ
+    reader = PdfReader(io.BytesIO(file_bytes))
+    writer = PdfWriter()
+
+    # สร้าง summary text
+    lines_data = []
+
+    # ผ้าใบ
+    canvas_norm = {}; canvas_gift = {}
+    for x in doc['items']:
+        if x['type'] == 'canvas':
+            if x['gift']: canvas_gift[x['subtype']] = canvas_gift.get(x['subtype'],0) + x['qty']
+            else:          canvas_norm[x['subtype']] = canvas_norm.get(x['subtype'],0) + x['qty']
+    for sub in sorted(canvas_norm):
+        qty = canvas_norm[sub]; boxes=qty//12; rem=qty%12
+        txt = f"ผ้าใบ {sub}: {qty:,} คู่  →  {boxes} กล่อง" + (f" เศษ {rem} คู่" if rem else "")
+        g = canvas_gift.get(sub,0)
+        if g:
+            gb=g//12; gr=g%12
+            txt += f"   |   ของแถม: {g:,} คู่ → {gb} กล่อง" + (f" เศษ {gr} คู่" if gr else "")
+        lines_data.append(('canvas', txt))
+
+    # ฟองน้ำ 200
+    ft2=doc.get('_ft2',0); ft2g=doc.get('_ft2_gift',0)
+    if ft2:
+        doz=ft2//12; sacks=doz//10; rem_doz=doz%10
+        txt = f"ฟองน้ำ 200: {ft2:,} คู่  →  {sacks} กระสอบ" + (f" เศษ {rem_doz} โหล" if rem_doz else "")
+        if ft2g:
+            gd=ft2g//12; gs=gd//10; gr=gd%10
+            txt += f"   |   ของแถม: {ft2g:,} คู่ → {gs} กระสอบ" + (f" เศษ {gr} โหล" if gr else "")
+        lines_data.append(('foam', txt))
+
+    # ฟองน้ำ 212
+    f212=doc.get('_ft3_212',0); f212g=doc.get('_ft3_212_gift',0)
+    if f212:
+        boxes=f212//24; rem=(f212%24)//12
+        txt = f"ฟองน้ำ 212: {f212:,} คู่  →  {boxes} กล่อง" + (f" เศษ {rem} โหล" if rem else "")
+        if f212g:
+            gb=f212g//24; txt += f"   |   ของแถม: {f212g:,} คู่ → {gb} กล่อง"
+        lines_data.append(('foam', txt))
+
+    # ฟองน้ำ 213
+    f213=doc.get('_ft3_213',0); f213g=doc.get('_ft3_213_gift',0)
+    if f213:
+        boxes=f213//24; rem=(f213%24)//12
+        txt = f"ฟองน้ำ 213: {f213:,} คู่  →  {boxes} กล่อง" + (f" เศษ {rem} โหล" if rem else "")
+        if f213g:
+            gb=f213g//24; txt += f"   |   ของแถม: {f213g:,} คู่ → {gb} กล่อง"
+        lines_data.append(('foam', txt))
+
+    # Nature
+    nat=doc.get('_nature',0); natg=doc.get('_nature_gift',0)
+    if nat:
+        doz=nat//12; sacks=doz//10; rem_doz=doz%10
+        txt = f"ฟองน้ำ Nature: {nat:,} คู่  →  {sacks} กระสอบ" + (f" เศษ {rem_doz} โหล" if rem_doz else "")
+        if natg:
+            gd=natg//12; gs=gd//10; gr=gd%10
+            txt += f"   |   ของแถม: {natg:,} คู่ → {gs} กระสอบ" + (f" เศษ {gr} โหล" if gr else "")
+        lines_data.append(('nature', txt))
+
+    if not lines_data:
+        # ไม่มีสรุป ส่งคืน PDF เดิม
+        buf = io.BytesIO()
+        for page in reader.pages:
+            writer.add_page(page)
+        writer.write(buf)
+        buf.seek(0)
+        return buf
+
+    # สร้าง overlay สรุปสำหรับแต่ละหน้าสุดท้าย
+    last_page = reader.pages[-1]
+    pw = float(last_page.mediabox.width)
+    ph = float(last_page.mediabox.height)
+
+    line_h = 16
+    header_h = 22
+    padding = 10
+    margin = 25
+    box_h = header_h + padding + len(lines_data)*line_h + padding + 6
+
+    # สร้าง overlay PDF
+    overlay_buf = io.BytesIO()
+    c = rl_canvas.Canvas(overlay_buf, pagesize=(pw, ph))
+
+    bx = margin; by = margin; bw = pw - 2*margin
+
+    # header box
+    c.setFillColorRGB(0.1, 0.3, 0.55)
+    c.rect(bx, by+box_h-header_h-padding, bw, header_h+padding, fill=1, stroke=0)
+    # content box
+    c.setFillColorRGB(0.95, 0.97, 1.0)
+    c.rect(bx, by, bw, box_h-header_h-padding, fill=1, stroke=0)
+    # border
+    c.setStrokeColorRGB(0.1, 0.3, 0.55)
+    c.setLineWidth(1.2)
+    c.rect(bx, by, bw, box_h, fill=0, stroke=1)
+
+    # header text
+    c.setFont('Sarabun-Bold', 11)
+    c.setFillColorRGB(1, 1, 1)
+    header_txt = f"สรุปโหลด: {doc['docId']}  |  {doc.get('customer','')}  |  อ.{doc.get('amphoe','')} จ.{doc.get('province','')}"
+    c.drawString(bx+10, by+box_h-padding-15, header_txt)
+
+    # items
+    y = by + box_h - header_h - padding - line_h
+    for ptype, txt in lines_data:
+        if ptype == 'canvas':
+            c.setFillColorRGB(0.09, 0.47, 0.09)
+        elif ptype == 'nature':
+            c.setFillColorRGB(0.09, 0.35, 0.22)
+        else:
+            c.setFillColorRGB(0.08, 0.22, 0.52)
+        c.setFont('Sarabun-Bold', 10)
+        c.drawString(bx+12, y, '•')
+        c.setFont('Sarabun', 10)
+        c.drawString(bx+22, y, txt)
+        y -= line_h
+
+    c.save()
+    overlay_buf.seek(0)
+
+    # Merge ทุกหน้า
+    overlay_reader = PdfReader(overlay_buf)
+    overlay_page = overlay_reader.pages[0]
+
+    for i, page in enumerate(reader.pages):
+        if i == len(reader.pages) - 1:
+            # หน้าสุดท้าย: merge กับ overlay
+            page.merge_page(overlay_page)
+        writer.add_page(page)
+
+    out_buf = io.BytesIO()
+    writer.write(out_buf)
+    out_buf.seek(0)
+    return out_buf
+
+
 def build_excel(docs):
     wb = Workbook()
 
@@ -869,8 +1031,31 @@ if uploaded:
 
         excel = build_excel(docs)
         fname = f"IFO_โหลดสินค้า_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-        st.download_button("📥 ดาวน์โหลด Excel", data=excel, file_name=fname,
+        st.download_button("📥 ดาวน์โหลด Excel (รวมทุก IFO)", data=excel, file_name=fname,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True, type="primary")
+
+        # ดาวน์โหลด PDF พร้อมสรุปโหลดแต่ละ IFO
+        st.divider()
+        st.markdown("**📄 ดาวน์โหลด PDF พร้อมสรุปโหลด (แยกตาม IFO)**")
+        pdf_cols = st.columns(min(len(docs), 4))
+        # map ไฟล์ต้นฉบับ
+        file_map = {}
+        for f in uploaded:
+            f.seek(0)
+            file_map[f.name] = f.read()
+        for i, doc in enumerate(docs):
+            fname_src = doc.get('_file','')
+            raw_bytes = file_map.get(fname_src, b'')
+            if raw_bytes:
+                pdf_out = build_pdf_with_summary(raw_bytes, doc)
+                col = pdf_cols[i % len(pdf_cols)]
+                col.download_button(
+                    label=f"📄 {doc['docId']}",
+                    data=pdf_out,
+                    file_name=f"{doc['docId']}_สรุปโหลด.pdf",
+                    mime="application/pdf",
+                    key=f"pdf_{doc['docId']}"
+                )
     else:
         if not errors: st.warning("⚠️ ไม่พบข้อมูล IFO ในไฟล์ที่อัปโหลด")

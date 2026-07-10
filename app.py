@@ -325,15 +325,17 @@ def parse_pdf(file_bytes):
             if m: return m.group()
         return None
 
-    # จัดกลุ่ม lines ตาม IFO
-    groups = {}; order = []
-    for lines in page_data:
+    # จัดกลุ่ม lines ตาม IFO พร้อมเก็บ page index
+    groups = {}; order = []; page_indices = {}
+    for pi, lines in enumerate(page_data):
         ifo_id = get_ifo(lines)
         if not ifo_id: continue
         if ifo_id not in groups:
             groups[ifo_id] = []
             order.append(ifo_id)
+            page_indices[ifo_id] = []
         groups[ifo_id].extend(lines)
+        page_indices[ifo_id].append(pi)
 
     if not groups: return []
 
@@ -451,6 +453,7 @@ def parse_pdf(file_bytes):
                 'gift': is_gift
             })
 
+        doc['_pages'] = page_indices.get(ifo_id, [])
         if doc['items']:
             docs.append(doc)
 
@@ -479,9 +482,12 @@ def build_pdf_with_summary(file_bytes, doc):
     """เพิ่มสรุปโหลดสินค้าด้านล่างของ PDF ต้นฉบับ"""
     _ensure_thai_font()
 
-    # อ่าน PDF ต้นฉบับ
+    # อ่าน PDF ต้นฉบับ — เฉพาะหน้าของ IFO นี้
     reader = PdfReader(io.BytesIO(file_bytes))
     writer = PdfWriter()
+    page_indices = doc.get('_pages', list(range(len(reader.pages))))
+    if not page_indices:
+        page_indices = list(range(len(reader.pages)))
 
     # สร้าง summary text
     lines_data = []
@@ -540,10 +546,11 @@ def build_pdf_with_summary(file_bytes, doc):
         lines_data.append(('nature', txt))
 
     if not lines_data:
-        # ไม่มีสรุป ส่งคืน PDF เดิม
+        # ไม่มีสรุป ส่งคืน PDF เฉพาะหน้าของ IFO นี้
         buf = io.BytesIO()
-        for page in reader.pages:
-            writer.add_page(page)
+        for i in page_indices:
+            if i < len(reader.pages):
+                writer.add_page(reader.pages[i])
         writer.write(buf)
         buf.seek(0)
         return buf
@@ -604,9 +611,11 @@ def build_pdf_with_summary(file_bytes, doc):
     overlay_reader = PdfReader(overlay_buf)
     overlay_page = overlay_reader.pages[0]
 
-    for i, page in enumerate(reader.pages):
-        if i == len(reader.pages) - 1:
-            # หน้าสุดท้าย: merge กับ overlay
+    # เพิ่มเฉพาะหน้าของ IFO นี้
+    ifo_pages = [reader.pages[i] for i in page_indices if i < len(reader.pages)]
+    for i, page in enumerate(ifo_pages):
+        if i == len(ifo_pages) - 1:
+            # หน้าสุดท้าย: merge กับ overlay สรุปโหลด
             page.merge_page(overlay_page)
         writer.add_page(page)
 
@@ -1039,24 +1048,28 @@ if uploaded:
         st.divider()
         st.markdown("**📄 ดาวน์โหลด PDF พร้อมสรุปโหลด**")
 
-        # map ไฟล์ต้นฉบับ
+        # map ไฟล์ต้นฉบับ — เก็บ bytes ทั้งหมด
         file_map = {}
         for f in uploaded:
             f.seek(0)
             file_map[f.name] = f.read()
 
         # รวม PDF ทุกใบเป็นไฟล์เดียว
-        from pypdf import PdfWriter as _PdfWriter
+        from pypdf import PdfWriter as _PdfWriter, PdfReader as _PdfReader
         merged_writer = _PdfWriter()
         has_any_pdf = False
         for doc in docs:
             raw_bytes = file_map.get(doc.get('_file',''), b'')
-            if raw_bytes:
+            if not raw_bytes:
+                continue
+            try:
                 pdf_out = build_pdf_with_summary(raw_bytes, doc)
-                from pypdf import PdfReader as _PdfReader
+                pdf_out.seek(0)
                 for page in _PdfReader(pdf_out).pages:
                     merged_writer.add_page(page)
                 has_any_pdf = True
+            except Exception as e:
+                st.warning(f"⚠️ {doc['docId']}: ไม่สามารถสร้าง PDF ได้ ({e})")
 
         if has_any_pdf:
             import io as _io

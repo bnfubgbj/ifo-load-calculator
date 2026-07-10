@@ -1,4 +1,5 @@
 streamlit
 pdfplumber
 openpyxl
-# v2
+pypdf
+reportlab

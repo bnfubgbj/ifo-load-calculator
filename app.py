@@ -1035,27 +1035,61 @@ if uploaded:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True, type="primary")
 
-        # ดาวน์โหลด PDF พร้อมสรุปโหลดแต่ละ IFO
+        # ดาวน์โหลด PDF พร้อมสรุปโหลด
         st.divider()
-        st.markdown("**📄 ดาวน์โหลด PDF พร้อมสรุปโหลด (แยกตาม IFO)**")
-        pdf_cols = st.columns(min(len(docs), 4))
+        st.markdown("**📄 ดาวน์โหลด PDF พร้อมสรุปโหลด**")
+
         # map ไฟล์ต้นฉบับ
         file_map = {}
         for f in uploaded:
             f.seek(0)
             file_map[f.name] = f.read()
-        for i, doc in enumerate(docs):
-            fname_src = doc.get('_file','')
-            raw_bytes = file_map.get(fname_src, b'')
+
+        # รวม PDF ทุกใบเป็นไฟล์เดียว
+        from pypdf import PdfWriter as _PdfWriter
+        merged_writer = _PdfWriter()
+        has_any_pdf = False
+        for doc in docs:
+            raw_bytes = file_map.get(doc.get('_file',''), b'')
             if raw_bytes:
                 pdf_out = build_pdf_with_summary(raw_bytes, doc)
-                col = pdf_cols[i % len(pdf_cols)]
-                col.download_button(
-                    label=f"📄 {doc['docId']}",
-                    data=pdf_out,
-                    file_name=f"{doc['docId']}_สรุปโหลด.pdf",
+                from pypdf import PdfReader as _PdfReader
+                for page in _PdfReader(pdf_out).pages:
+                    merged_writer.add_page(page)
+                has_any_pdf = True
+
+        if has_any_pdf:
+            import io as _io
+            merged_buf = _io.BytesIO()
+            merged_writer.write(merged_buf)
+            merged_buf.seek(0)
+            fname_all = f"IFO_รวมสรุปโหลด_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.download_button(
+                    label=f"📄 ดาวน์โหลด PDF รวมทุกใบ ({len(docs)} IFO)",
+                    data=merged_buf,
+                    file_name=fname_all,
                     mime="application/pdf",
-                    key=f"pdf_{doc['docId']}"
+                    use_container_width=True,
+                    type="primary",
+                    key="pdf_all"
                 )
+
+            # แยกทีละใบ (optional)
+            with c2:
+                with st.expander("📋 ดาวน์โหลดแยกทีละ IFO"):
+                    for doc in docs:
+                        raw_bytes = file_map.get(doc.get('_file',''), b'')
+                        if raw_bytes:
+                            pdf_out = build_pdf_with_summary(raw_bytes, doc)
+                            st.download_button(
+                                label=f"📄 {doc['docId']} — {doc.get('customer','')}",
+                                data=pdf_out,
+                                file_name=f"{doc['docId']}_สรุปโหลด.pdf",
+                                mime="application/pdf",
+                                key=f"pdf_{doc['docId']}"
+                            )
     else:
         if not errors: st.warning("⚠️ ไม่พบข้อมูล IFO ในไฟล์ที่อัปโหลด")

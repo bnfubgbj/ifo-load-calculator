@@ -217,6 +217,12 @@ def norm(s):
         (r'เชยี งคา', 'เชียงคำ'),
         (r'หยว่ น', 'หย่วน'),
         (r'พะเยา', 'พะเยา'),
+        # pattern ใหม่
+        (r'ประดษิ ฐฐ์ ากรณ์', 'ประดิษฐ์ฐากรณ์'),
+        (r'ประดษิ ฐ์ฐากรณ์', 'ประดิษฐ์ฐากรณ์'),
+        (r'อทุ ัยธาน ี', 'อุทัยธานี'),
+        (r'อทุ ัยธานี', 'อุทัยธานี'),
+        (r'หนองฉาง', 'หนองฉาง'),
         # normalize whitespace
         (r'\s+', ' '),
     ]
@@ -362,6 +368,10 @@ def parse_pdf(file_bytes):
                 break
 
         # จังหวัด / อำเภอ
+        # กรองบรรทัดที่เป็น header นันยางออกก่อน (99-105 ถนนสีพระยา)
+        addr_lines = [l for l in all_lines[:20]
+                      if 'นันยาง' not in l and 'สพี ระยา' not in l
+                      and 'สพระยา' not in l and '0105522000677' not in l]
         # จังหวัดที่ปรากฏในที่อยู่โดยไม่มี "จ." นำหน้า
         PROVINCE_DIRECT = {
             'ประจวบครี ขี ันธ': 'ประจวบคีรีขันธ์',
@@ -374,6 +384,9 @@ def parse_pdf(file_bytes):
             'เพชรบรุ ี': 'เพชรบุรี',
             'อดุ รธานี': 'อุดรธานี',
             'อุดรธานี': 'อุดรธานี',
+            'อทุ ัยธาน ี': 'อุทัยธานี',
+            'อทุ ัยธานี': 'อุทัยธานี',
+            'อุทัยธานี': 'อุทัยธานี',
             'พะเยา': 'พะเยา',
             'สรุ าษฎรธ์ าน ี': 'สุราษฎร์ธานี',
             'ประจวบครี ขี ันธ์': 'ประจวบคีรีขันธ์',
@@ -396,7 +409,7 @@ def parse_pdf(file_bytes):
             'เขตบางรัก': 'บางรัก',
             'เขตพระนคร': 'พระนคร',
         }
-        for line in all_lines[:20]:
+        for line in addr_lines:
             mp = re.search(r'จ\.([ก-๙A-Za-z]+(?:\s+[ก-๙A-Za-z]+)?)', line)
             ma = re.search(r'อ\.([ก-๙A-Za-z]+(?:\s+[ก-๙A-Za-z]+)?)(?:\s+จ\.)?', line)
             if mp: doc['province'] = norm(re.sub(r'\d+.*', '', mp.group(1)).strip())
@@ -414,6 +427,14 @@ def parse_pdf(file_bytes):
                         doc['amphoe'] = av
                         break
             if doc['province'] and doc['amphoe']: break
+        # fallback: หาจังหวัดจาก addr_lines ที่ไม่มี จ.
+        if not doc['province']:
+            for line in addr_lines:
+                for kw, pv in PROVINCE_DIRECT.items():
+                    if kw in line:
+                        doc['province'] = pv
+                        break
+                if doc['province']: break
         # fallback กรุงเทพ: ถ้าเจอเขต แต่ยังไม่เจอจังหวัด
         if not doc['province']:
             for line in all_lines[:20]:

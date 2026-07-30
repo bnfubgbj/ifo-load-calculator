@@ -554,11 +554,13 @@ def build_pdf_with_summary(file_bytes, doc):
         if qty > 0:
             boxes=qty//12; rem=qty%12
             txt = f"ผ้าใบ {sub}: {qty:,} คู่  →  {boxes} กล่อง" + (f" เศษ {rem} คู่" if rem else "")
+            if g:
+                gb=g//12; gr=g%12
+                txt += f"   |   ของแถม: {g:,} คู่ → {gb} กล่อง" + (f" เศษ {gr} คู่" if gr else "")
         else:
-            txt = f"ผ้าใบ {sub}:"
-        if g:
+            # มีแต่ของแถม ไม่มีปกติ
             gb=g//12; gr=g%12
-            txt += f"   |   ของแถม: {g:,} คู่ → {gb} กล่อง" + (f" เศษ {gr} คู่" if gr else "")
+            txt = f"ผ้าใบ {sub} (ของแถม): {g:,} คู่ → {gb} กล่อง" + (f" เศษ {gr} คู่" if gr else "")
         lines_data.append(('canvas', txt))
 
     # ฟองน้ำ 200

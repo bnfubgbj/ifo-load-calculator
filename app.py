@@ -546,10 +546,16 @@ def build_pdf_with_summary(file_bytes, doc):
         if x['type'] == 'canvas':
             if x['gift']: canvas_gift[x['subtype']] = canvas_gift.get(x['subtype'],0) + x['qty']
             else:          canvas_norm[x['subtype']] = canvas_norm.get(x['subtype'],0) + x['qty']
-    for sub in sorted(canvas_norm):
-        qty = canvas_norm[sub]; boxes=qty//12; rem=qty%12
-        txt = f"ผ้าใบ {sub}: {qty:,} คู่  →  {boxes} กล่อง" + (f" เศษ {rem} คู่" if rem else "")
-        g = canvas_gift.get(sub,0)
+    all_canvas_subs = sorted(set(list(canvas_norm.keys()) + list(canvas_gift.keys())))
+    for sub in all_canvas_subs:
+        qty = canvas_norm.get(sub, 0)
+        g = canvas_gift.get(sub, 0)
+        if qty == 0 and g == 0: continue
+        if qty > 0:
+            boxes=qty//12; rem=qty%12
+            txt = f"ผ้าใบ {sub}: {qty:,} คู่  →  {boxes} กล่อง" + (f" เศษ {rem} คู่" if rem else "")
+        else:
+            txt = f"ผ้าใบ {sub}:"
         if g:
             gb=g//12; gr=g%12
             txt += f"   |   ของแถม: {g:,} คู่ → {gb} กล่อง" + (f" เศษ {gr} คู่" if gr else "")
@@ -1052,6 +1058,8 @@ if uploaded:
                     cc = calc_canvas(doc['_ct'])
                     st.success(f"🟢 **ผ้าใบ:** {doc['_ct']} คู่ / {cc['boxes']} กล่อง" +
                                (f" เศษ {cc['rem']} คู่" if cc['rem'] else ""))
+                elif doc.get('_ct_gift',0) and not doc['_ct']:
+                    st.success(f"🟢 **ผ้าใบ:** ไม่มีปกติ")
                 if doc['_ft2']:
                     cf = calc_foam200(doc['_ft2'])
                     st.info(f"🔵 **ฟองน้ำ 200:** {doc['_ft2']} คู่ / {cf['sacks']} กระสอบ เศษ {cf['rem_doz']} โหล")
@@ -1066,7 +1074,8 @@ if uploaded:
                     st.info(f"🌿 **ฟองน้ำ Nature:** {doc['_nature']} คู่ / {cn['sacks']} กระสอบ" + (f" เศษ {cn['rem_doz']} โหล" if cn['rem_doz'] else ""))
 
                 gift_total = (doc.get('_ct_gift',0) + doc.get('_ft2_gift',0) +
-                              doc.get('_ft3_212_gift',0) + doc.get('_ft3_213_gift',0))
+                              doc.get('_ft3_212_gift',0) + doc.get('_ft3_213_gift',0) +
+                              doc.get('_nature_gift',0))
                 if gift_total:
                     parts = []
                     if doc.get('_ct_gift'):

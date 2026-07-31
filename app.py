@@ -347,6 +347,86 @@ def parse_item_line(line):
 
     return bc, qty, is_gift, desc
 
+def parse_tfv(file_bytes):
+    """Parse เอกสาร TFV (โอนสินค้าไปรถ)"""
+    page_data = []
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            lines = extract_lines_from_page(page)
+            page_data.append(lines)
+
+    if not page_data: return []
+
+    # หา TFV ID จาก header
+    tfv_id = None
+    salesman = ''
+    van = ''
+    doc_date = ''
+    all_lines = []
+    for lines in page_data:
+        all_lines.extend(lines)
+
+    for line in all_lines[:15]:
+        m = re.search(r'TFV-\d+', line)
+        if m: tfv_id = m.group(); break
+
+    if not tfv_id: return []
+
+    for line in all_lines[:15]:
+        ms = re.search(r'Salesman\s*:\s*\d+\s+(.+?)(?:ขนึ|$)', line)
+        if ms: salesman = norm(ms.group(1).strip()); break
+
+    for line in all_lines[:15]:
+        mv = re.search(r'To Van\s*:\s*(.+)', line)
+        if mv: van = norm(mv.group(1).strip()); break
+
+    for line in all_lines[:15]:
+        md = re.search(r'Document Date\s*:(\d{1,2}\s+[ก-๙\.]+\s+\d{4})', line)
+        if md:
+            raw_date = md.group(1).strip()
+            pat = r'(\d{1,2})\s+(' + '|'.join(re.escape(k) for k in MONTH_MAP) + r')\s+(\d{4})'
+            mm = re.search(pat, raw_date)
+            if mm:
+                d, mo, y = mm.group(1), mm.group(2), int(mm.group(3))
+                if y > 2500: y -= 543
+                doc_date = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
+            break
+
+    # parse รายการ — format: # barcode desc qty คู่ price
+    items = []
+    seen = set()
+    tfv_pat = re.compile(r'^\d+\s+(1[12]\d{7})\s+(.+?)\s+(\d{1,3}(?:,\d{3}){0,2})\s+คู่\s+([\d,\.]+)')
+
+    for line in all_lines:
+        m = tfv_pat.match(line)
+        if not m: continue
+        bc = m.group(1)
+        desc = m.group(2).strip()
+        qty = int(m.group(3).replace(',',''))
+        if qty <= 0 or qty > 999999: continue
+        key = (bc, qty)
+        if key in seen: continue
+        seen.add(key)
+        ptype = detect_type(bc)
+        subtype = get_subtype(bc, desc)
+        items.append({'desc': desc, 'type': ptype, 'subtype': subtype, 'qty': qty, 'gift': False})
+
+    if not items: return []
+
+    doc = {
+        'docId': tfv_id,
+        'date': doc_date,
+        'customer': salesman,
+        'van': van,
+        'province': '',
+        'amphoe': '',
+        'items': items,
+        '_pages': list(range(len(page_data))),
+        '_doc_type': 'TFV',
+    }
+    return [doc]
+
+
 def parse_pdf(file_bytes):
     page_data = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
@@ -1030,17 +1110,89 @@ with c2:
         st.session_state.ukey += 1; st.rerun()
 
 if uploaded:
-    docs = []; errors = []
+    docs = []; tfv_docs = []; errors = []
     with st.spinner('🔍 กำลังอ่าน PDF...'):
         for f in uploaded:
             try:
-                results = parse_pdf(f.read())
-                for doc in results:
-                    agg(doc); doc['_file'] = f.name; docs.append(doc)
+                raw = f.read()
+                import pdfplumber as _pl, io as _io
+                with _pl.open(_io.BytesIO(raw)) as _pdf:
+                    _first_text = _pdf.pages[0].extract_text() or ''
+                if 'TFV-' in _first_text:
+                    results = parse_tfv(raw)
+                    for doc in results:
+                        agg(doc); doc['_file'] = f.name; tfv_docs.append(doc)
+                else:
+                    results = parse_pdf(raw)
+                    for doc in results:
+                        agg(doc); doc['_file'] = f.name; docs.append(doc)
             except Exception as e:
                 errors.append(f"{f.name}: {e}")
 
     for e in errors: st.error(f"❌ {e}")
+
+    # ── ส่วน TFV ──
+    if tfv_docs:
+        st.markdown('''
+<div style="background:linear-gradient(135deg,#1a5c2e,#145224);color:white;border-radius:10px;padding:12px 20px;margin:10px 0">
+<h2 style="font-size:16px;font-weight:700;margin:0">🚐 สรุปโหลดสินค้า — เอกสาร TFV (โอนสินค้าไปรถ)</h2>
+</div>''', unsafe_allow_html=True)
+
+        for doc in tfv_docs:
+            canvas_subs = {}; foam200 = 0; foam212 = 0; foam213 = 0; nature = 0
+            for x in doc['items']:
+                if x['type'] == 'canvas':
+                    canvas_subs[x['subtype']] = canvas_subs.get(x['subtype'],0) + x['qty']
+                elif x['type'] == 'foam200': foam200 += x['qty']
+                elif x['type'] == 'foam212':
+                    if x['subtype'] == '212': foam212 += x['qty']
+                    else: foam213 += x['qty']
+                elif x['type'] == 'nature': nature += x['qty']
+            total = sum(canvas_subs.values()) + foam200 + foam212 + foam213 + nature
+            with st.expander(f"🚐 {doc['docId']} — {doc.get('customer','')} | {doc.get('van','')} ({th_date(doc['date'])})", expanded=True):
+                st.write(f"**รวม:** {total:,} คู่")
+                for sub, qty in sorted(canvas_subs.items()):
+                    cc = calc_canvas(qty)
+                    st.success(f"🟢 **ผ้าใบ {sub}:** {qty:,} คู่ / {cc['boxes']} กล่อง" + (f" เศษ {cc['rem']} คู่" if cc['rem'] else ""))
+                if foam200:
+                    cf = calc_foam200(foam200)
+                    st.info(f"🔵 **ฟองน้ำ 200:** {foam200:,} คู่ / {cf['sacks']} กระสอบ" + (f" เศษ {cf['rem_doz']} โหล" if cf['rem_doz'] else ""))
+                if foam212:
+                    c2 = calc_foam212(foam212)
+                    st.info(f"🔵 **ฟองน้ำ 212:** {foam212:,} คู่ / {c2['boxes']} กล่อง" + (f" เศษ {c2['rem_doz']} โหล" if c2['rem_doz'] else ""))
+                if foam213:
+                    c3 = calc_foam212(foam213)
+                    st.info(f"🔵 **ฟองน้ำ 213:** {foam213:,} คู่ / {c3['boxes']} กล่อง" + (f" เศษ {c3['rem_doz']} โหล" if c3['rem_doz'] else ""))
+                if nature:
+                    cn = calc_foam200(nature)
+                    st.info(f"🌿 **ฟองน้ำ Nature:** {nature:,} คู่ / {cn['sacks']} กระสอบ" + (f" เศษ {cn['rem_doz']} โหล" if cn['rem_doz'] else ""))
+
+        excel_tfv = build_excel(tfv_docs)
+        fname_tfv = f"TFV_โหลดสินค้า_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+        c1, c2 = st.columns(2)
+        with c1:
+            st.download_button("📥 ดาวน์โหลด Excel TFV", data=excel_tfv, file_name=fname_tfv,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True, type="primary", key="excel_tfv")
+        with c2:
+            file_map_tfv = {}
+            for f in uploaded:
+                f.seek(0); file_map_tfv[f.name] = f.read()
+            from pypdf import PdfWriter as _PW, PdfReader as _PR
+            import io as _io2
+            merged_tfv = _PW()
+            for doc in tfv_docs:
+                raw = file_map_tfv.get(doc.get('_file',''), b'')
+                if raw:
+                    pdf_out = build_pdf_with_summary(raw, doc)
+                    pdf_out.seek(0)
+                    for page in _PR(pdf_out).pages:
+                        merged_tfv.add_page(page)
+            buf_tfv = _io2.BytesIO(); merged_tfv.write(buf_tfv); buf_tfv.seek(0)
+            st.download_button(f"📄 ดาวน์โหลด PDF TFV รวม ({len(tfv_docs)} ฉบับ)",
+                data=buf_tfv, file_name=f"TFV_รวมสรุปโหลด_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                mime="application/pdf", use_container_width=True, key="pdf_tfv")
+        st.divider()
 
     if docs:
         docs.sort(key=lambda x: x['docId'])

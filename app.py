@@ -29,7 +29,7 @@ from openpyxl.utils import get_column_letter
 from collections import defaultdict
 from datetime import datetime
 
-st.set_page_config(page_title="คำนวณโหลดสินค้า IFO", page_icon="📦", layout="wide")
+st.set_page_config(page_title="คำนวณโหลดสินค้า IFO & TFV", page_icon="📦", layout="wide")
 
 # ── CONSTANTS ──
 BOX_CANVAS = 12
@@ -1094,8 +1094,8 @@ def build_excel(docs):
 # ── UI ──
 st.markdown("""
 <div style="background:linear-gradient(135deg,#1B4F8A,#163D6E);color:white;border-radius:12px;padding:16px 24px;margin-bottom:20px">
-<h1 style="font-size:20px;font-weight:700;margin:0">📦 คำนวณโหลดสินค้า IFO</h1>
-<p style="font-size:13px;opacity:.7;margin:4px 0 0">อัปโหลด PDF → คำนวณอัตโนมัติ → ดาวน์โหลด Excel</p>
+<h1 style="font-size:20px;font-weight:700;margin:0">📦 คำนวณโหลดสินค้า IFO & TFV</h1>
+<p style="font-size:13px;opacity:.7;margin:4px 0 0">รองรับ IFO & TFV → คำนวณอัตโนมัติ → ดาวน์โหลด Excel & PDF</p>
 </div>""", unsafe_allow_html=True)
 
 if 'ukey' not in st.session_state: st.session_state.ukey = 0

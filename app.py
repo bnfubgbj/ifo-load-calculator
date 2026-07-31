@@ -395,17 +395,17 @@ def parse_tfv(file_bytes):
     # parse รายการ — format: # barcode desc qty คู่ price
     items = []
     seen = set()
-    tfv_pat = re.compile(r'^\d+\s+(1[12]\d{7})\s+(.+?)\s+(\d{1,3}(?:,\d{3}){0,2})\s+คู่\s+([\d,\.]+)')
+    tfv_pat = re.compile(r'(\d+)\s+(1[12]\d{7})\s+(.+?)\s+(\d{1,3}(?:,\d{3}){0,2})\s+คู่\s+([\d,\.]+)')
 
     for line in all_lines:
-        m = tfv_pat.match(line)
+        m = tfv_pat.search(line)
         if not m: continue
-        bc = m.group(1)
-        desc = m.group(2).strip()
-        qty = int(m.group(3).replace(',',''))
+        bc = m.group(2)
+        desc = m.group(3).strip()
+        qty = int(m.group(4).replace(',',''))
         if qty <= 0 or qty > 999999: continue
-        key = (bc, qty)
-        if key in seen: continue
+        no = m.group(1)
+        key = (no, bc)
         seen.add(key)
         ptype = detect_type(bc)
         subtype = get_subtype(bc, desc)
@@ -874,13 +874,12 @@ def calc_tfv_summary(doc):
     - Nature → โหล
     - 212/213 → กล่อง (24 คู่/กล่อง)
     """
-    canvas_doz = 0
-    foam200_by_color = defaultdict(int)
-    nature_doz = 0
-    foam212_boxes = 0
-    foam212_rem = 0
-    foam213_boxes = 0
-    foam213_rem = 0
+    # รวม qty ก่อน แล้วค่อยหาร (ป้องกันการสูญเสียเศษจากหารทีละรายการ)
+    canvas_qty = 0
+    foam200_by_color_qty = defaultdict(int)
+    nature_qty = 0
+    foam212_qty = 0
+    foam213_qty = 0
 
     for x in doc['items']:
         qty = x['qty']
@@ -888,31 +887,31 @@ def calc_tfv_summary(doc):
         bc = x.get('barcode', '')
 
         if ptype == 'canvas':
-            canvas_doz += qty // 12
+            canvas_qty += qty
 
         elif ptype == 'foam200':
             color_group = get_foam200_color_group(bc) if bc else 'อื่นๆ'
-            foam200_by_color[color_group] += qty // 12
+            foam200_by_color_qty[color_group] += qty
 
         elif ptype == 'nature':
-            nature_doz += qty // 12
+            nature_qty += qty
 
         elif ptype == 'foam212':
             if x['subtype'] == '212':
-                foam212_boxes += qty // 24
-                foam212_rem += (qty % 24) // 12
+                foam212_qty += qty
             else:
-                foam213_boxes += qty // 24
-                foam213_rem += (qty % 24) // 12
+                foam213_qty += qty
 
     return {
-        'canvas_doz': canvas_doz,
-        'foam200_by_color': dict(foam200_by_color),
-        'nature_doz': nature_doz,
-        'foam212_boxes': foam212_boxes,
-        'foam212_rem': foam212_rem,
-        'foam213_boxes': foam213_boxes,
-        'foam213_rem': foam213_rem,
+        'canvas_doz': canvas_qty // 12,
+        'canvas_rem': canvas_qty % 12,
+        'foam200_by_color': {c: q//12 for c, q in foam200_by_color_qty.items()},
+        'nature_doz': nature_qty // 12,
+        'nature_rem': nature_qty % 12,
+        'foam212_boxes': foam212_qty // 24,
+        'foam212_rem': (foam212_qty % 24) // 12,
+        'foam213_boxes': foam213_qty // 24,
+        'foam213_rem': (foam213_qty % 24) // 12,
     }
 
 

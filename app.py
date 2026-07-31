@@ -1191,7 +1191,7 @@ if uploaded:
             buf_tfv = _io2.BytesIO(); merged_tfv.write(buf_tfv); buf_tfv.seek(0)
             st.download_button(f"📄 ดาวน์โหลด PDF TFV รวม ({len(tfv_docs)} ฉบับ)",
                 data=buf_tfv, file_name=f"TFV_รวมสรุปโหลด_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                mime="application/pdf", use_container_width=True, key="pdf_tfv")
+                mime="application/pdf", use_container_width=True, type="primary", key="pdf_tfv")
         st.divider()
 
     if docs:

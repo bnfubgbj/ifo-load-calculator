@@ -409,7 +409,7 @@ def parse_tfv(file_bytes):
         seen.add(key)
         ptype = detect_type(bc)
         subtype = get_subtype(bc, desc)
-        items.append({'desc': desc, 'type': ptype, 'subtype': subtype, 'qty': qty, 'gift': False})
+        items.append({'desc': desc, 'type': ptype, 'subtype': subtype, 'qty': qty, 'gift': False, 'barcode': bc})
 
     if not items: return []
 
@@ -639,6 +639,70 @@ def build_pdf_with_summary(file_bytes, doc):
     # สร้าง summary text
     lines_data = []
 
+    # ── TFV: ใช้ calc_tfv_summary แทน ──
+    if doc.get('_doc_type') == 'TFV':
+        summary = calc_tfv_summary(doc)
+        if summary['canvas_doz']:
+            lines_data.append(('canvas', f"ผ้าใบ 205S: {summary['canvas_doz']} โหล"))
+        COLOR_ORDER = ['น้ำเงิน+เขียว+แดง','ดำ','ขาว','สีดำหน้าขาว','เหลือง','เทา','ส้ม','น้ำตาล','อื่นๆ']
+        for color in COLOR_ORDER:
+            doz = summary['foam200_by_color'].get(color, 0)
+            if doz: lines_data.append(('foam', f"ฟองน้ำ 200 {color}: {doz} โหล"))
+        for color, doz in summary['foam200_by_color'].items():
+            if color not in COLOR_ORDER and doz:
+                lines_data.append(('foam', f"ฟองน้ำ 200 {color}: {doz} โหล"))
+        if summary['nature_doz']:
+            lines_data.append(('nature', f"ฟองน้ำ Nature: {summary['nature_doz']} โหล"))
+        if summary['foam212_boxes']:
+            lines_data.append(('foam', f"ฟองน้ำ 212: {summary['foam212_boxes']} กล่อง" + (f" เศษ {summary['foam212_rem']} โหล" if summary['foam212_rem'] else "")))
+        if summary['foam213_boxes']:
+            lines_data.append(('foam', f"ฟองน้ำ 213: {summary['foam213_boxes']} กล่อง" + (f" เศษ {summary['foam213_rem']} โหล" if summary['foam213_rem'] else "")))
+
+        # ข้าม logic IFO ไปสร้าง overlay เลย
+        if not lines_data:
+            buf = io.BytesIO()
+            page_indices = doc.get('_pages', list(range(len(reader.pages))))
+            for i in page_indices:
+                if i < len(reader.pages): writer.add_page(reader.pages[i])
+            writer.write(buf); buf.seek(0)
+            return buf
+
+        last_page = reader.pages[-1]
+        pw = float(last_page.mediabox.width)
+        ph = float(last_page.mediabox.height)
+        line_h=16; header_h=22; padding=10; margin=25
+        box_h = header_h+padding+len(lines_data)*line_h+padding+6
+        overlay_buf = io.BytesIO()
+        c = rl_canvas.Canvas(overlay_buf, pagesize=(pw, ph))
+        bx=margin; by=margin; bw=pw-2*margin
+        c.setFillColorRGB(0.1,0.3,0.55)
+        c.rect(bx,by+box_h-header_h-padding,bw,header_h+padding,fill=1,stroke=0)
+        c.setFillColorRGB(0.95,0.97,1.0)
+        c.rect(bx,by,bw,box_h-header_h-padding,fill=1,stroke=0)
+        c.setStrokeColorRGB(0.1,0.3,0.55); c.setLineWidth(1.2)
+        c.rect(bx,by,bw,box_h,fill=0,stroke=1)
+        c.setFont('Sarabun-Bold',11); c.setFillColorRGB(1,1,1)
+        header_txt = f"สรุปโหลด TFV: {doc['docId']}  |  {doc.get('customer','')}  |  {doc.get('van','')}"
+        c.drawString(bx+10,by+box_h-padding-15,header_txt)
+        y=by+box_h-header_h-padding-line_h
+        for ptype, txt in lines_data:
+            if ptype=='canvas': c.setFillColorRGB(0.09,0.47,0.09)
+            elif ptype=='nature': c.setFillColorRGB(0.09,0.35,0.22)
+            else: c.setFillColorRGB(0.08,0.22,0.52)
+            c.setFont('Sarabun-Bold',10); c.drawString(bx+12,y,'•')
+            c.setFont('Sarabun',10); c.drawString(bx+22,y,txt)
+            y-=line_h
+        c.save(); overlay_buf.seek(0)
+        overlay_page = PdfReader(overlay_buf).pages[0]
+        page_indices = doc.get('_pages', list(range(len(reader.pages))))
+        ifo_pages = [reader.pages[i] for i in page_indices if i < len(reader.pages)]
+        for i, page in enumerate(ifo_pages):
+            if i == len(ifo_pages)-1: page.merge_page(overlay_page)
+            writer.add_page(page)
+        out_buf = io.BytesIO(); writer.write(out_buf); out_buf.seek(0)
+        return out_buf
+
+    # ── IFO: logic เดิม ──
     # ผ้าใบ
     canvas_norm = {}; canvas_gift = {}
     for x in doc['items']:
@@ -778,6 +842,78 @@ def build_pdf_with_summary(file_bytes, doc):
     writer.write(out_buf)
     out_buf.seek(0)
     return out_buf
+
+
+# ── รหัสสี ฟองน้ำ 200 ──
+FOAM200_COLOR_MAP = {
+    '01': 'ขาว',
+    '02': 'ดำ',
+    '04': 'น้ำเงิน',
+    '05': 'เขียว',
+    '06': 'แดง',
+    '07': 'เหลือง',
+    '08': 'เทา',
+    '09': 'ส้ม',
+    '10': 'สีดำหน้าขาว',
+    '03': 'น้ำตาล',
+}
+FOAM200_MERGED = {'น้ำเงิน', 'เขียว', 'แดง'}  # รวมกลุ่มเดียว
+
+def get_foam200_color_group(barcode):
+    """จำแนกสีฟองน้ำ 200 จาก barcode"""
+    code = barcode[4:6]
+    color = FOAM200_COLOR_MAP.get(code, 'อื่นๆ')
+    if color in FOAM200_MERGED:
+        return 'น้ำเงิน+เขียว+แดง'
+    return color
+
+def calc_tfv_summary(doc):
+    """คำนวณสรุปโหลด TFV แยกตาม spec:
+    - 205S → โหล
+    - foam200 → โหล แยกตามสี (น้ำเงิน+เขียว+แดง รวม, อื่นแยก)
+    - Nature → โหล
+    - 212/213 → กล่อง (24 คู่/กล่อง)
+    """
+    canvas_doz = 0
+    foam200_by_color = defaultdict(int)
+    nature_doz = 0
+    foam212_boxes = 0
+    foam212_rem = 0
+    foam213_boxes = 0
+    foam213_rem = 0
+
+    for x in doc['items']:
+        qty = x['qty']
+        ptype = x['type']
+        bc = x.get('barcode', '')
+
+        if ptype == 'canvas':
+            canvas_doz += qty // 12
+
+        elif ptype == 'foam200':
+            color_group = get_foam200_color_group(bc) if bc else 'อื่นๆ'
+            foam200_by_color[color_group] += qty // 12
+
+        elif ptype == 'nature':
+            nature_doz += qty // 12
+
+        elif ptype == 'foam212':
+            if x['subtype'] == '212':
+                foam212_boxes += qty // 24
+                foam212_rem += (qty % 24) // 12
+            else:
+                foam213_boxes += qty // 24
+                foam213_rem += (qty % 24) // 12
+
+    return {
+        'canvas_doz': canvas_doz,
+        'foam200_by_color': dict(foam200_by_color),
+        'nature_doz': nature_doz,
+        'foam212_boxes': foam212_boxes,
+        'foam212_rem': foam212_rem,
+        'foam213_boxes': foam213_boxes,
+        'foam213_rem': foam213_rem,
+    }
 
 
 def build_excel(docs):
@@ -1148,24 +1284,37 @@ if uploaded:
                     if x['subtype'] == '212': foam212 += x['qty']
                     else: foam213 += x['qty']
                 elif x['type'] == 'nature': nature += x['qty']
-            total = sum(canvas_subs.values()) + foam200 + foam212 + foam213 + nature
+            summary = calc_tfv_summary(doc)
+            total_qty = sum(x['qty'] for x in doc['items'])
             with st.expander(f"🚐 {doc['docId']} — {doc.get('customer','')} | {doc.get('van','')} ({th_date(doc['date'])})", expanded=True):
-                st.write(f"**รวม:** {total:,} คู่")
-                for sub, qty in sorted(canvas_subs.items()):
-                    cc = calc_canvas(qty)
-                    st.success(f"🟢 **ผ้าใบ {sub}:** {qty:,} คู่ / {cc['boxes']} กล่อง" + (f" เศษ {cc['rem']} คู่" if cc['rem'] else ""))
-                if foam200:
-                    cf = calc_foam200(foam200)
-                    st.info(f"🔵 **ฟองน้ำ 200:** {foam200:,} คู่ / {cf['sacks']} กระสอบ" + (f" เศษ {cf['rem_doz']} โหล" if cf['rem_doz'] else ""))
-                if foam212:
-                    c2 = calc_foam212(foam212)
-                    st.info(f"🔵 **ฟองน้ำ 212:** {foam212:,} คู่ / {c2['boxes']} กล่อง" + (f" เศษ {c2['rem_doz']} โหล" if c2['rem_doz'] else ""))
-                if foam213:
-                    c3 = calc_foam212(foam213)
-                    st.info(f"🔵 **ฟองน้ำ 213:** {foam213:,} คู่ / {c3['boxes']} กล่อง" + (f" เศษ {c3['rem_doz']} โหล" if c3['rem_doz'] else ""))
-                if nature:
-                    cn = calc_foam200(nature)
-                    st.info(f"🌿 **ฟองน้ำ Nature:** {nature:,} คู่ / {cn['sacks']} กระสอบ" + (f" เศษ {cn['rem_doz']} โหล" if cn['rem_doz'] else ""))
+                st.write(f"**รวม:** {total_qty:,} คู่")
+
+                # ผ้าใบ 205S → โหล
+                if summary['canvas_doz']:
+                    canvas_qty = summary['canvas_doz'] * 12
+                    rem = canvas_qty % 12
+                    st.success(f"🟢 **ผ้าใบ 205S:** {summary['canvas_doz']} โหล" + (f" เศษ {rem} คู่" if rem else ""))
+
+                # ฟองน้ำ 200 แยกตามสี → โหล
+                COLOR_ORDER = ['น้ำเงิน+เขียว+แดง','ดำ','ขาว','สีดำหน้าขาว','เหลือง','เทา','ส้ม','น้ำตาล','อื่นๆ']
+                for color in COLOR_ORDER:
+                    doz = summary['foam200_by_color'].get(color, 0)
+                    if doz:
+                        st.info(f"🔵 **ฟองน้ำ 200 {color}:** {doz} โหล")
+                # สีที่ไม่อยู่ใน ORDER
+                for color, doz in summary['foam200_by_color'].items():
+                    if color not in COLOR_ORDER and doz:
+                        st.info(f"🔵 **ฟองน้ำ 200 {color}:** {doz} โหล")
+
+                # Nature → โหล
+                if summary['nature_doz']:
+                    st.info(f"🌿 **ฟองน้ำ Nature:** {summary['nature_doz']} โหล")
+
+                # 212/213 → กล่อง
+                if summary['foam212_boxes']:
+                    st.info(f"🔵 **ฟองน้ำ 212:** {summary['foam212_boxes']} กล่อง" + (f" เศษ {summary['foam212_rem']} โหล" if summary['foam212_rem'] else ""))
+                if summary['foam213_boxes']:
+                    st.info(f"🔵 **ฟองน้ำ 213:** {summary['foam213_boxes']} กล่อง" + (f" เศษ {summary['foam213_rem']} โหล" if summary['foam213_rem'] else ""))
 
         excel_tfv = build_excel(tfv_docs)
         fname_tfv = f"TFV_โหลดสินค้า_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"

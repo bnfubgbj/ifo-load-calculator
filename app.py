@@ -1102,7 +1102,7 @@ if 'ukey' not in st.session_state: st.session_state.ukey = 0
 
 c1, c2 = st.columns([4,1])
 with c1:
-    uploaded = st.file_uploader("📂 ลาก PDF มาวาง (รองรับ PDF รวมหลาย IFO)",
+    uploaded = st.file_uploader("📂 ลาก PDF มาวาง (รองรับ IFO และ TFV รวมหลายไฟล์)",
         type=['pdf'], accept_multiple_files=True, key=f"up_{st.session_state.ukey}")
 with c2:
     st.markdown('<br>', unsafe_allow_html=True)

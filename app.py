@@ -1169,29 +1169,56 @@ if uploaded:
 
         excel_tfv = build_excel(tfv_docs)
         fname_tfv = f"TFV_โหลดสินค้า_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-        c1, c2 = st.columns(2)
-        with c1:
-            st.download_button("📥 ดาวน์โหลด Excel TFV", data=excel_tfv, file_name=fname_tfv,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True, type="primary", key="excel_tfv")
-        with c2:
-            file_map_tfv = {}
-            for f in uploaded:
-                f.seek(0); file_map_tfv[f.name] = f.read()
-            from pypdf import PdfWriter as _PW, PdfReader as _PR
-            import io as _io2
-            merged_tfv = _PW()
-            for doc in tfv_docs:
-                raw = file_map_tfv.get(doc.get('_file',''), b'')
-                if raw:
-                    pdf_out = build_pdf_with_summary(raw, doc)
-                    pdf_out.seek(0)
-                    for page in _PR(pdf_out).pages:
-                        merged_tfv.add_page(page)
+        st.download_button("📥 ดาวน์โหลด Excel (รวมทุก TFV)", data=excel_tfv, file_name=fname_tfv,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True, type="primary", key="excel_tfv")
+
+        # ดาวน์โหลด PDF พร้อมสรุปโหลด
+        st.divider()
+        st.markdown("**📄 ดาวน์โหลด PDF พร้อมสรุปโหลด**")
+
+        file_map_tfv = {}
+        for f in uploaded:
+            f.seek(0); file_map_tfv[f.name] = f.read()
+
+        from pypdf import PdfWriter as _PW2, PdfReader as _PR2
+        import io as _io2
+        merged_tfv = _PW2()
+        has_tfv_pdf = False
+        for doc in tfv_docs:
+            raw = file_map_tfv.get(doc.get('_file',''), b'')
+            if not raw: continue
+            try:
+                pdf_out = build_pdf_with_summary(raw, doc)
+                pdf_out.seek(0)
+                for page in _PR2(pdf_out).pages:
+                    merged_tfv.add_page(page)
+                has_tfv_pdf = True
+            except Exception as e:
+                st.warning(f"⚠️ {doc['docId']}: ไม่สามารถสร้าง PDF ได้ ({e})")
+
+        if has_tfv_pdf:
             buf_tfv = _io2.BytesIO(); merged_tfv.write(buf_tfv); buf_tfv.seek(0)
-            st.download_button(f"📄 ดาวน์โหลด PDF TFV รวม ({len(tfv_docs)} ฉบับ)",
-                data=buf_tfv, file_name=f"TFV_รวมสรุปโหลด_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                mime="application/pdf", use_container_width=True, type="primary", key="pdf_tfv")
+            fname_tfv_pdf = f"TFV_รวมสรุปโหลด_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+            c1, c2 = st.columns(2)
+            with c1:
+                st.download_button(
+                    label=f"📄 ดาวน์โหลด PDF รวมทุกใบ ({len(tfv_docs)} TFV)",
+                    data=buf_tfv, file_name=fname_tfv_pdf,
+                    mime="application/pdf",
+                    use_container_width=True, type="primary", key="pdf_tfv_all")
+            with c2:
+                with st.expander("📋 ดาวน์โหลดแยกทีละ TFV"):
+                    for doc in tfv_docs:
+                        raw = file_map_tfv.get(doc.get('_file',''), b'')
+                        if raw:
+                            pdf_out = build_pdf_with_summary(raw, doc)
+                            st.download_button(
+                                label=f"📄 {doc['docId']} — {doc.get('customer','')}",
+                                data=pdf_out,
+                                file_name=f"{doc['docId']}_สรุปโหลด.pdf",
+                                mime="application/pdf",
+                                key=f"pdf_{doc['docId']}_tfv")
         st.divider()
 
     if docs:

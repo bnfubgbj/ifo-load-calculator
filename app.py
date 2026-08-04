@@ -267,6 +267,7 @@ def detect_type(barcode):
     if p in ('122','123'): return 'foam212'
     if p == '121': return 'nature'   # ฟองน้ำ Nature
     if p == '120': return 'foam200'
+    if p in ('130','132'): return 'socks'   # ถุงเท้า
     return 'other'
 
 def get_subtype(barcode, desc):
@@ -286,6 +287,12 @@ def get_subtype(barcode, desc):
     if barcode[:3] == '120': return '200'
     if barcode[:3] == '122': return '212'
     if barcode[:3] == '123': return '213'
+    # ถุงเท้า: แยกตามช่วงไซส์ + กันลื่นหรือไม่ (130601=ธรรมดา, 132608=กันลื่น)
+    if barcode[:3] in ('130','132'):
+        slip = 'กันลื่น' if barcode[:3] == '132' else 'ธรรมดา'
+        size_m = re.search(r'(\d{1,2}\s*-\s*\d{1,2})', desc)
+        size = size_m.group(1).replace(' ', '') if size_m else ''
+        return f"ถุงเท้า {size} {slip}".strip()
     return desc.split()[0] if desc else 'อื่นๆ'
 
 def extract_lines_from_page(page):
@@ -395,8 +402,8 @@ def parse_tfv(file_bytes):
     # parse รายการ — รองรับทั้ง format บรรทัดเดียวและ 2 บรรทัด
     items = []
     seen = set()
-    tfv_pat = re.compile(r'(\d+)\s+(1[12]\d{7})\s+(.+?)\s+(\d{1,3}(?:,\d{3}){0,2})\s+คู่\s+([\d,\.]+)')
-    tfv_pat2 = re.compile(r'^(\d+)\s+(1[12]\d{7})\s+(\d{1,3}(?:,\d{3}){0,2})\s+คู่')
+    tfv_pat = re.compile(r'(\d+)\s+(1[123]\d{7})\s+(.+?)\s+(\d{1,3}(?:,\d{3}){0,2})\s+(?:คู่|แพ็ค)\s+([\d,\.]+)')
+    tfv_pat2 = re.compile(r'^(\d+)\s+(1[123]\d{7})\s+(\d{1,3}(?:,\d{3}){0,2})\s+(?:คู่|แพ็ค)')
 
     prev_desc = ''
     for line in all_lines:
@@ -685,6 +692,9 @@ def build_pdf_with_summary(file_bytes, doc):
             lines_data.append(('foam', f"ฟองน้ำ 212: {summary['foam212_boxes']} กล่อง" + (f" เศษ {summary['foam212_rem']} โหล" if summary['foam212_rem'] else "")))
         if summary['foam213_boxes']:
             lines_data.append(('foam', f"ฟองน้ำ 213: {summary['foam213_boxes']} กล่อง" + (f" เศษ {summary['foam213_rem']} โหล" if summary['foam213_rem'] else "")))
+        for sub, qty in summary.get('socks_by_subtype', {}).items():
+            if qty:
+                lines_data.append(('canvas', f"{sub}: {qty} แพ็ค"))
 
         # ข้าม logic IFO ไปสร้าง overlay เลย
         if not lines_data:
@@ -908,6 +918,7 @@ def calc_tfv_summary(doc):
     nature_qty = 0
     foam212_qty = 0
     foam213_qty = 0
+    socks_by_subtype_qty = defaultdict(int)
 
     for x in doc['items']:
         qty = x['qty']
@@ -930,6 +941,10 @@ def calc_tfv_summary(doc):
             else:
                 foam213_qty += qty
 
+        elif ptype == 'socks':
+            # ถุงเท้า: qty อยู่ในหน่วยแพ็คอยู่แล้ว ไม่ต้องหาร
+            socks_by_subtype_qty[x['subtype']] += qty
+
     return {
         'canvas_doz': canvas_qty // 12,
         'canvas_rem': canvas_qty % 12,
@@ -940,6 +955,7 @@ def calc_tfv_summary(doc):
         'foam212_rem': (foam212_qty % 24) // 12,
         'foam213_boxes': foam213_qty // 24,
         'foam213_rem': (foam213_qty % 24) // 12,
+        'socks_by_subtype': dict(socks_by_subtype_qty),
     }
 
 
@@ -1342,6 +1358,11 @@ if uploaded:
                     st.info(f"🔵 **ฟองน้ำ 212:** {summary['foam212_boxes']} กล่อง" + (f" เศษ {summary['foam212_rem']} โหล" if summary['foam212_rem'] else ""))
                 if summary['foam213_boxes']:
                     st.info(f"🔵 **ฟองน้ำ 213:** {summary['foam213_boxes']} กล่อง" + (f" เศษ {summary['foam213_rem']} โหล" if summary['foam213_rem'] else ""))
+
+                # ถุงเท้า → แพ็ค
+                for sub, qty in summary.get('socks_by_subtype', {}).items():
+                    if qty:
+                        st.warning(f"🧦 **{sub}:** {qty} แพ็ค")
 
         excel_tfv = build_excel(tfv_docs)
         fname_tfv = f"TFV_โหลดสินค้า_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"

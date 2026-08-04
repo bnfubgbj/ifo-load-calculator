@@ -392,24 +392,52 @@ def parse_tfv(file_bytes):
                 doc_date = f"{y}-{MONTH_MAP[mo]}-{d.zfill(2)}"
             break
 
-    # parse รายการ — format: # barcode desc qty คู่ price
+    # parse รายการ — รองรับทั้ง format บรรทัดเดียวและ 2 บรรทัด
     items = []
     seen = set()
     tfv_pat = re.compile(r'(\d+)\s+(1[12]\d{7})\s+(.+?)\s+(\d{1,3}(?:,\d{3}){0,2})\s+คู่\s+([\d,\.]+)')
+    tfv_pat2 = re.compile(r'^(\d+)\s+(1[12]\d{7})\s+(\d{1,3}(?:,\d{3}){0,2})\s+คู่')
 
+    prev_desc = ''
     for line in all_lines:
+        # format 2: no bc qty คู่ (ไม่มี desc ในบรรทัด — desc อยู่บรรทัดก่อน)
+        m2 = tfv_pat2.match(line)
+        if m2:
+            no = m2.group(1); bc = m2.group(2)
+            qty = int(m2.group(3).replace(',',''))
+            if qty > 0 and qty <= 999999:
+                key = (no, bc)
+                if key not in seen:
+                    seen.add(key)
+                    ptype = detect_type(bc)
+                    subtype = get_subtype(bc, prev_desc)
+                    if not subtype or subtype == 'อื่นๆ':
+                        subtype = get_subtype(bc, '')
+                    items.append({'desc': prev_desc, 'type': ptype, 'subtype': subtype,
+                                  'qty': qty, 'gift': False, 'barcode': bc})
+            prev_desc = ''
+            continue
+
+        # format ปกติ: no bc desc qty คู่ price
         m = tfv_pat.search(line)
-        if not m: continue
-        bc = m.group(2)
-        desc = m.group(3).strip()
-        qty = int(m.group(4).replace(',',''))
-        if qty <= 0 or qty > 999999: continue
-        no = m.group(1)
-        key = (no, bc)
-        seen.add(key)
-        ptype = detect_type(bc)
-        subtype = get_subtype(bc, desc)
-        items.append({'desc': desc, 'type': ptype, 'subtype': subtype, 'qty': qty, 'gift': False, 'barcode': bc})
+        if m:
+            no = m.group(1); bc = m.group(2)
+            desc = m.group(3).strip()
+            qty = int(m.group(4).replace(',',''))
+            if qty <= 0 or qty > 999999:
+                prev_desc = line.strip(); continue
+            key = (no, bc)
+            if key not in seen:
+                seen.add(key)
+                ptype = detect_type(bc)
+                subtype = get_subtype(bc, desc)
+                items.append({'desc': desc, 'type': ptype, 'subtype': subtype,
+                              'qty': qty, 'gift': False, 'barcode': bc})
+            prev_desc = ''
+        else:
+            # บรรทัดที่มีแต่ desc (เตรียมสำหรับ format 2)
+            if re.search(r'ฟองน[าํ้]+|ผา้ใบ|ผ้าใบ|Nature', line):
+                prev_desc = line.strip()
 
     if not items: return []
 

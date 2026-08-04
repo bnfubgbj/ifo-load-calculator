@@ -677,8 +677,18 @@ def build_pdf_with_summary(file_bytes, doc):
     # ── TFV: ใช้ calc_tfv_summary แทน ──
     if doc.get('_doc_type') == 'TFV':
         summary = calc_tfv_summary(doc)
-        if summary['canvas_doz']:
-            lines_data.append(('canvas', f"ผ้าใบ 205S: {summary['canvas_doz']} โหล"))
+        CANVAS_LABEL = {'205S': 'ผ้าใบ 205S', '205R': 'ผ้าใบ 205R Superstar', '121Z': 'ผ้าใบ 121-Z'}
+        CANVAS_ORDER = ['205S', '205R', '121Z']
+        for sub in CANVAS_ORDER:
+            doz = summary['canvas_by_subtype'].get(sub, 0)
+            if doz:
+                rem = summary['canvas_rem_by_subtype'].get(sub, 0)
+                label = CANVAS_LABEL.get(sub, f'ผ้าใบ {sub}')
+                lines_data.append(('canvas', f"{label}: {doz} โหล" + (f" เศษ {rem} คู่" if rem else "")))
+        for sub, doz in summary['canvas_by_subtype'].items():
+            if sub not in CANVAS_ORDER and doz:
+                rem = summary['canvas_rem_by_subtype'].get(sub, 0)
+                lines_data.append(('canvas', f"ผ้าใบ {sub}: {doz} โหล" + (f" เศษ {rem} คู่" if rem else "")))
         COLOR_ORDER = ['น้ำเงิน+เขียว+แดง','ดำ','ขาว','สีดำหน้าขาว','เหลือง','เทา','ส้ม','น้ำตาล','อื่นๆ']
         for color in COLOR_ORDER:
             doz = summary['foam200_by_color'].get(color, 0)
@@ -913,7 +923,7 @@ def calc_tfv_summary(doc):
     - 212/213 → กล่อง (24 คู่/กล่อง)
     """
     # รวม qty ก่อน แล้วค่อยหาร (ป้องกันการสูญเสียเศษจากหารทีละรายการ)
-    canvas_qty = 0
+    canvas_by_subtype_qty = defaultdict(int)
     foam200_by_color_qty = defaultdict(int)
     nature_qty = 0
     foam212_qty = 0
@@ -926,7 +936,8 @@ def calc_tfv_summary(doc):
         bc = x.get('barcode', '')
 
         if ptype == 'canvas':
-            canvas_qty += qty
+            # แยกตามชนิดสินค้า (205S / 205R Superstar / 121-Z) ไม่รวมสี
+            canvas_by_subtype_qty[x['subtype']] += qty
 
         elif ptype == 'foam200':
             color_group = get_foam200_color_group(bc) if bc else 'อื่นๆ'
@@ -946,8 +957,8 @@ def calc_tfv_summary(doc):
             socks_by_subtype_qty[x['subtype']] += qty
 
     return {
-        'canvas_doz': canvas_qty // 12,
-        'canvas_rem': canvas_qty % 12,
+        'canvas_by_subtype': {s: q//12 for s, q in canvas_by_subtype_qty.items()},
+        'canvas_rem_by_subtype': {s: q%12 for s, q in canvas_by_subtype_qty.items()},
         'foam200_by_color': {c: q//12 for c, q in foam200_by_color_qty.items()},
         'nature_doz': nature_qty // 12,
         'nature_rem': nature_qty % 12,
@@ -1332,11 +1343,18 @@ if uploaded:
             with st.expander(f"🚐 {doc['docId']} — {doc.get('customer','')} | {doc.get('van','')} ({th_date(doc['date'])})", expanded=True):
                 st.write(f"**รวม:** {total_qty:,} คู่")
 
-                # ผ้าใบ 205S → โหล
-                if summary['canvas_doz']:
-                    canvas_qty = summary['canvas_doz'] * 12
-                    rem = canvas_qty % 12
-                    st.success(f"🟢 **ผ้าใบ 205S:** {summary['canvas_doz']} โหล" + (f" เศษ {rem} คู่" if rem else ""))
+                # ผ้าใบ แยกตามชนิด (205S / 205R Superstar / 121-Z) ไม่รวมสี
+                CANVAS_LABEL = {'205S': 'ผ้าใบ 205S', '205R': 'ผ้าใบ 205R Superstar', '121Z': 'ผ้าใบ 121-Z'}
+                CANVAS_ORDER = ['205S', '205R', '121Z']
+                for sub in CANVAS_ORDER:
+                    doz = summary['canvas_by_subtype'].get(sub, 0)
+                    if doz:
+                        rem = summary['canvas_rem_by_subtype'].get(sub, 0)
+                        st.success(f"🟢 **{CANVAS_LABEL.get(sub, sub)}:** {doz} โหล" + (f" เศษ {rem} คู่" if rem else ""))
+                for sub, doz in summary['canvas_by_subtype'].items():
+                    if sub not in CANVAS_ORDER and doz:
+                        rem = summary['canvas_rem_by_subtype'].get(sub, 0)
+                        st.success(f"🟢 **ผ้าใบ {sub}:** {doz} โหล" + (f" เศษ {rem} คู่" if rem else ""))
 
                 # ฟองน้ำ 200 แยกตามสี → โหล
                 COLOR_ORDER = ['น้ำเงิน+เขียว+แดง','ดำ','ขาว','สีดำหน้าขาว','เหลือง','เทา','ส้ม','น้ำตาล','อื่นๆ']

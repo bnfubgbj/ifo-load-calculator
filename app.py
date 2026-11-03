@@ -320,7 +320,7 @@ def parse_item_line(line):
     คืน (barcode, qty, is_gift, desc) หรือ None
     """
     # ต้องมี barcode 9 หลัก ขึ้นต้นด้วย 11 หรือ 12
-    m = re.search(r'(1[12]\d{7})', line)
+    m = re.search(r'(1[123]\d{7})', line)
     if not m:
         return None
 
@@ -616,7 +616,7 @@ def parse_pdf(file_bytes):
             if not result:
                 continue
             bc, qty, is_gift, desc = result
-            key = (bc, qty, is_gift)
+            key = (bc, qty, is_gift, desc)
             if key in seen_keys:
                 continue
             seen_keys.add(key)

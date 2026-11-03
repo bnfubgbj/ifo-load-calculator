@@ -922,7 +922,7 @@ def build_excel(docs):
 st.markdown("""
 <div style="background:linear-gradient(135deg,#1B4F8A,#163D6E);color:white;border-radius:12px;padding:16px 24px;margin-bottom:20px">
 <h1 style="font-size:20px;font-weight:700;margin:0">📦 คำนวณโหลดสินค้า IFO</h1>
-<p style="font-size:13px;opacity:.7;margin:4px 0 0">อัปโหลด PDF → คำนวณอัตโนมัติ → ดาวน์โหลด PDF / Excel</p>
+<p style="font-size:13px;opacity:.7;margin:4px 0 0">อัปโหลด PDF → คำนวณอัตโนมัติ → ดาวน์โหลด PDF สรุปโหลด</p>
 </div>""", unsafe_allow_html=True)
 
 if 'ukey' not in st.session_state: st.session_state.ukey=0
@@ -1018,28 +1018,19 @@ if uploaded:
         st.divider()
         ts = datetime.now().strftime('%Y%m%d_%H%M')
 
-        # ── ปุ่ม PDF + Excel ──
-        dcols = st.columns([2, 1])
-        with dcols[0]:
-            with st.spinner('⏳ กำลังสร้าง PDF...'):
-                try:
-                    pdf_data = build_pdf_combined(docs, raw_pdf_map)
-                    st.download_button(
-                        "📄 ดาวน์โหลด PDF (รวมทุกใบ + สรุปโหลด)",
-                        data=pdf_data,
-                        file_name=f"IFO_สรุปโหลด_{ts}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
-                        type="primary"
-                    )
-                except Exception as e:
-                    st.error(f"❌ สร้าง PDF ไม่ได้: {e}")
-
-        with dcols[1]:
-            excel=build_excel(docs)
-            fname=f"IFO_โหลดสินค้า_{ts}.xlsx"
-            st.download_button("📊 Excel",data=excel,file_name=fname,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True)
+        # ── ปุ่มโหลด PDF ──
+        with st.spinner('⏳ กำลังสร้าง PDF...'):
+            try:
+                pdf_data = build_pdf_combined(docs, raw_pdf_map)
+                st.download_button(
+                    "📄 ดาวน์โหลด PDF (รวมทุกใบ + สรุปโหลด)",
+                    data=pdf_data,
+                    file_name=f"IFO_สรุปโหลด_{ts}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary"
+                )
+            except Exception as e:
+                st.error(f"❌ สร้าง PDF ไม่ได้: {e}")
     else:
         if not errors: st.warning("⚠️ ไม่พบข้อมูล IFO ในไฟล์ที่อัปโหลด")

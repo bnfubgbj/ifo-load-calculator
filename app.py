@@ -581,7 +581,9 @@ def parse_pdf(file_bytes):
         seen_pos = set()  # ใช้ match position แทน (bc,qty) เพื่อไม่ข้าม row เดียวกันที่ qty เท่ากัน
 
         # format ของแถม: qty คู่ 0.00 0.00 ของแถม ... barcode desc
-        gift_pat = re.compile(r'(\d{1,4})\s+คู่\s+0\.00\s+0\.00\s+ของแถม\s+\d+\s+((1[12]\d{7}))\s+(.+?)(?=\d+\s+คู่|Z0001|$)')
+        # barcode: 11xxxxxxx (ผ้าใบ), 12xxxxxxx (ฟองน้ำ 200/212/213)
+        BC_PAT = r'1[123]\d{7}'
+        gift_pat = re.compile(r'(\d{1,4})\s+คู่\s+0\.00\s+0\.00\s+ของแถม\s+\d+\s+((' + BC_PAT + r'))\s+(.+?)(?=\d+\s+คู่|Z0001|$)', re.DOTALL)
         gift_pos = set()
         for m in gift_pat.finditer(full_text):
             if m.start() in seen_pos: continue
@@ -596,7 +598,8 @@ def parse_pdf(file_bytes):
             doc['items'].append({'desc':desc,'type':ptype,'subtype':subtype,'qty':qty,'gift':True})
 
         # format ปกติ: barcode desc qty คู่ ...
-        norm_pat = re.compile(r'(?<![\d])((1[12]\d{7}))\s+(.+?)\s+(\d{1,4})\s+คู่(.{0,80}?)(?=(?:1[12]\d{7})|Z0001|$)')
+        # [^\n] แทน . เพื่อไม่ให้ข้ามบรรทัด; lookahead ใช้ re.MULTILINE สำหรับ $
+        norm_pat = re.compile(r'(?<![\d])((' + BC_PAT + r'))\s+([^\n]+?)\s+(\d{1,4})\s+คู่([^\n]{0,80})(?=\n|$)', re.MULTILINE)
         for m in norm_pat.finditer(full_text):
             if m.start() in seen_pos: continue
             seen_pos.add(m.start())

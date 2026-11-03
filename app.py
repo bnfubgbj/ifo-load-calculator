@@ -545,6 +545,14 @@ def parse_pdf(file_bytes):
         # province & amphoe จาก header lines
         for line in lines[:15]:
             line_n = norm(line)  # normalize ก่อน parse
+
+            # กรณีพิเศษ: กรุงเทพฯ — ใช้ "เขต" แทน "อ." และไม่มี "จ."
+            mk = re.search(r'เขต([ก-๙]+)', line_n)
+            if mk and ('กรุงเทพ' in line_n or 'กทม' in line_n):
+                doc['amphoe']  = 'เขต' + mk.group(1)
+                doc['province'] = 'กรุงเทพมหานคร'
+                break
+
             # หา อ.xxx จ.xxx (pattern ปกติ)
             mp = re.search(r'จ\.([ก-๙a-zA-Z\-]+(?:\s+[ก-๙]+)*)', line_n)
             # amphoe: ถ้ามี จ. ตามหลัง ให้จับแบบ greedy; ถ้าไม่มี จำกัดแค่คำเดียว (ไม่ข้ามจังหวัด)

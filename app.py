@@ -502,7 +502,8 @@ def parse_pdf(file_bytes):
 
     def get_ifo(lines):
         for l in lines[:10]:
-            m = re.search(r'IFO-\d+', l)
+            l_clean = re.sub(r'\(cid:\d+\)', '', l)
+            m = re.search(r'IFO-\d+', l_clean)
             if m: return m.group()
         return None
 

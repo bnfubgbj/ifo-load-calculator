@@ -578,17 +578,17 @@ def parse_pdf(file_bytes):
         # รองรับ 2 format:
         # ปกติ:  <bc> <desc> <qty> คู่ <ราคา> <ส่วนลด> <รวม>
         # แถม:   <qty> คู่ 0.00 0.00 ของแถม <ลำดับ> <bc> <desc>
-        seen = set()
+        seen_pos = set()  # ใช้ match position แทน (bc,qty) เพื่อไม่ข้าม row เดียวกันที่ qty เท่ากัน
 
         # format ของแถม: qty คู่ 0.00 0.00 ของแถม ... barcode desc
         gift_pat = re.compile(r'(\d{1,4})\s+คู่\s+0\.00\s+0\.00\s+ของแถม\s+\d+\s+((1[12]\d{7}))\s+(.+?)(?=\d+\s+คู่|Z0001|$)')
-        gift_items = set()
+        gift_pos = set()
         for m in gift_pat.finditer(full_text):
+            if m.start() in seen_pos: continue
+            seen_pos.add(m.start())
             qty, bc, desc_raw = int(m.group(1)), m.group(2), m.group(4).strip()
             if qty <= 0 or qty > 9999: continue
-            key = (bc, qty)
-            if key in seen: continue
-            seen.add(key); gift_items.add(key)
+            gift_pos.add(m.start())
             desc = re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$','',desc_raw).strip()
             desc = re.sub(r'^\d+\s+','',desc).strip()
             ptype = detect_type(bc)
@@ -598,12 +598,11 @@ def parse_pdf(file_bytes):
         # format ปกติ: barcode desc qty คู่ ...
         norm_pat = re.compile(r'(?<![\d])((1[12]\d{7}))\s+(.+?)\s+(\d{1,4})\s+คู่(.{0,80}?)(?=(?:1[12]\d{7})|Z0001|$)')
         for m in norm_pat.finditer(full_text):
+            if m.start() in seen_pos: continue
+            seen_pos.add(m.start())
             bc, desc_raw, qty = m.group(1), m.group(3).strip(), int(m.group(4))
             after = m.group(5) or ''
             if qty <= 0 or qty > 9999: continue
-            key = (bc, qty)
-            if key in seen: continue
-            seen.add(key)
             desc = re.sub(r'\s+\d+(\.\d+)?(\s+\d+(\.\d+)?)*$','',desc_raw).strip()
             desc = re.sub(r'^\d+\s+','',desc).strip()
             ptype = detect_type(bc)

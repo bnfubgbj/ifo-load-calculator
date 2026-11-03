@@ -14,7 +14,7 @@ from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-import os, tempfile
+import os, tempfile, urllib.request
 
 st.set_page_config(page_title="คำนวณโหลดสินค้า IFO", page_icon="📦", layout="wide")
 
@@ -246,18 +246,23 @@ def _ensure_thai_font():
     global _FONT_REGISTERED, _FONT_NAME
     if _FONT_REGISTERED:
         return _FONT_NAME
-    # ลำดับ preference: font ใน repo ก่อน → system path → Helvetica fallback
-    _here = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        ('FreeSerif',   os.path.join(_here, 'FreeSerif.ttf')),   # ฝังใน repo (หลัก)
-        ('THSarabunNew', os.path.join(_here, 'THSarabunNew.ttf')),
-        ('THSarabunNew', '/usr/share/fonts/truetype/thai/THSarabunNew.ttf'),
-        ('THSarabunNew', '/usr/share/fonts/truetype/thaifonts/THSarabunNew.ttf'),
-        ('THSarabunNew', '/usr/local/share/fonts/THSarabunNew.ttf'),
-        ('FreeSerif',   '/usr/share/fonts/truetype/freefont/FreeSerif.ttf'),
-        ('FreeSans',    '/usr/share/fonts/truetype/freefont/FreeSans.ttf'),
-    ]
-    for name, path in candidates:
+    font_path = '/tmp/Sarabun-Regular.ttf'
+    try:
+        if not os.path.exists(font_path):
+            urllib.request.urlretrieve(
+                'https://github.com/google/fonts/raw/main/ofl/sarabun/Sarabun-Regular.ttf',
+                font_path)
+        pdfmetrics.registerFont(TTFont('Sarabun', font_path))
+        _FONT_NAME = 'Sarabun'
+        _FONT_REGISTERED = True
+        return _FONT_NAME
+    except Exception:
+        pass
+    # fallback: system font
+    for name, path in [
+        ('FreeSerif', '/usr/share/fonts/truetype/freefont/FreeSerif.ttf'),
+        ('FreeSans',  '/usr/share/fonts/truetype/freefont/FreeSans.ttf'),
+    ]:
         if os.path.exists(path):
             try:
                 pdfmetrics.registerFont(TTFont(name, path))
@@ -266,7 +271,6 @@ def _ensure_thai_font():
                 return _FONT_NAME
             except Exception:
                 continue
-    # ถ้าไม่เจอ font ไหนเลย ใช้ Helvetica (ตัว ASCII)
     _FONT_REGISTERED = True
     return 'Helvetica'
 

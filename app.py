@@ -169,6 +169,12 @@ def norm(s):
         ('เมอื งสมทุ ร', 'เมืองสมุทร'),
 
         # ชื่อลูกค้า / ชื่อร้าน
+        ('วนิ เนอร์', 'วินเนอร์'), ('วนิเนอร์', 'วินเนอร์'),
+        ('วนิ เนอร', 'วินเนอร'), ('วนิเนอร', 'วินเนอร'),
+        ('กจิ เจรญิ ภษู า', 'กิจเจริญภูษา'), ('กจิเจรญิ ภษู า', 'กิจเจริญภูษา'),
+        ('กจิ เจรญิ', 'กิจเจริญ'), ('กจิเจรญิ', 'กิจเจริญ'),
+        ('ภษู า', 'ภูษา'), ('ภษูา', 'ภูษา'),
+        ('เครอื งครัว', 'เครื่องครัว'), ('เครอื ง', 'เครื่อง'), ('เครอืง', 'เครื่อง'),
         ('วรวฒั น', 'วรวัฒน'), ('วรวฒั น์', 'วรวัฒน์'),
         ('กาํ ไลบตู คิ', 'กำไลบูติก'), ('กําไลบตู คิ', 'กำไลบูติก'),
         ('บตู คิ', 'บูติก'), ('บตูคิ', 'บูติก'),
@@ -212,6 +218,9 @@ def norm(s):
     ]
     for wrong, right in word_fixes:
         s = s.replace(wrong, right)
+
+    # ── ชั้น 1.5: ลบ cid characters ──
+    s = re.sub(r'\(cid:\d+\)', '', s)
 
     # ── ชั้น 2: regex สำหรับ pattern ที่ยืดหยุ่น ──
     regex_fixes = [
@@ -1022,18 +1031,52 @@ if uploaded:
         st.divider()
         ts = datetime.now().strftime('%Y%m%d_%H%M')
 
-        # ── ปุ่มโหลด PDF ──
+        # ── Excel ──
+        excel = build_excel(docs)
+        st.download_button(
+            "📥 ดาวน์โหลด Excel (รวมทุก IFO)",
+            data=excel,
+            file_name=f"IFO_โหลดสินค้า_{ts}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            type="primary"
+        )
+
+        st.divider()
+        st.markdown("**📄 ดาวน์โหลด PDF พร้อมสรุปโหลด**")
+
+        # สร้าง PDF รวมทุกใบ
         with st.spinner('⏳ กำลังสร้าง PDF...'):
             try:
-                pdf_data = build_pdf_combined(docs, raw_pdf_map)
-                st.download_button(
-                    "📄 ดาวน์โหลด PDF (รวมทุกใบ + สรุปโหลด)",
-                    data=pdf_data,
-                    file_name=f"IFO_สรุปโหลด_{ts}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    type="primary"
-                )
+                merged_buf = build_pdf_combined(docs, raw_pdf_map)
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.download_button(
+                        label=f"📄 ดาวน์โหลด PDF รวมทุกใบ ({len(docs)} IFO)",
+                        data=merged_buf,
+                        file_name=f"IFO_รวมสรุปโหลด_{ts}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        type="primary",
+                        key="pdf_all"
+                    )
+                with c2:
+                    with st.expander("📋 ดาวน์โหลดแยกทีละ IFO"):
+                        for doc in docs:
+                            ifo_id = doc['docId']
+                            raw_bytes = raw_pdf_map.get(ifo_id, b'')
+                            if raw_bytes:
+                                try:
+                                    single_buf = build_pdf_combined([doc], {ifo_id: raw_bytes})
+                                    st.download_button(
+                                        label=f"📄 {ifo_id} — {doc.get('customer','')}",
+                                        data=single_buf,
+                                        file_name=f"{ifo_id}_สรุปโหลด.pdf",
+                                        mime="application/pdf",
+                                        key=f"pdf_{ifo_id}"
+                                    )
+                                except Exception:
+                                    pass
             except Exception as e:
                 st.error(f"❌ สร้าง PDF ไม่ได้: {e}")
     else:

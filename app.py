@@ -150,7 +150,8 @@ def norm(s):
         ('ปราณบรุ ี', 'ปราณบุรี'), ('ปราณบรีุ', 'ปราณบุรี'),
         ('สไุ หงโก-ลก', 'สุไหงโก-ลก'), ('สไุหงโก-ลก', 'สุไหงโก-ลก'),
         ('บางนําเปรยี ว', 'บางน้ำเปรี้ยว'), ('บางนาํ เปรยี ว', 'บางน้ำเปรี้ยว'),
-        ('บางนํา เปรยี ว', 'บางน้ำเปรี้ยว'),
+        ('บางนํา เปรยี ว', 'บางน้ำเปรี้ยว'), ('บางนำเปรยี ว', 'บางน้ำเปรี้ยว'),
+        ('บางน ำเปรยี ว', 'บางน้ำเปรี้ยว'), ('บางนำ เปรยี ว', 'บางน้ำเปรี้ยว'),
         ('ศรรี าชา', 'ศรีราชา'), ('ศรรีาชา', 'ศรีราชา'),
         ('กบนิ ทร์บรุ ี', 'กบินทร์บุรี'),
         ('วหิ ารแดง', 'วิหารแดง'), ('วหิารแดง', 'วิหารแดง'),
@@ -543,10 +544,22 @@ def parse_pdf(file_bytes):
 
         # province & amphoe จาก header lines
         for line in lines[:15]:
-            mp = re.search(r'จ\.([ก-๙]+(?:\s+[ก-๙]+)?)', line)
-            ma = re.search(r'อ\.([ก-๙]+(?:\s+[ก-๙]+)?)(?:\s+จ\.)?', line)
-            if mp: doc['province'] = norm(re.sub(r'\d+.*','',mp.group(1)).strip())
-            if ma: doc['amphoe'] = norm(re.sub(r'\s*จ$','',re.sub(r'\d+.*','',ma.group(1)).strip()).strip())
+            line_n = norm(line)  # normalize ก่อน parse
+            # หา อ.xxx จ.xxx (pattern ปกติ)
+            mp = re.search(r'จ\.([ก-๙a-zA-Z\-]+(?:\s+[ก-๙]+)*)', line_n)
+            # amphoe: ถ้ามี จ. ตามหลัง ให้จับแบบ greedy; ถ้าไม่มี จำกัดแค่คำเดียว (ไม่ข้ามจังหวัด)
+            if re.search(r'อ\.[ก-๙\-]+.*จ\.', line_n):
+                ma = re.search(r'อ\.([ก-๙a-zA-Z\-]+(?:\s+[ก-๙]+)?)\s+จ\.', line_n)
+            else:
+                ma = re.search(r'อ\.([ก-๙a-zA-Z\-]+)', line_n)
+            if mp: doc['province'] = re.sub(r'\d+.*','', mp.group(1)).strip()
+            if ma: doc['amphoe']   = re.sub(r'\s*จ$','', re.sub(r'\d+.*','', ma.group(1))).strip()
+            # fallback: ถ้าไม่มี จ. — หา อ.xxx แล้วตัวถัดไปคือจังหวัด
+            if not doc['province'] and ma:
+                after_amphoe = re.search(
+                    r'อ\.[ก-๙\-]+(?:\s+[ก-๙]+)?\s+([ก-๙]{3,}(?:\s+[ก-๙]+)?)\s+\d', line_n)
+                if after_amphoe:
+                    doc['province'] = re.sub(r'\d+.*','', after_amphoe.group(1)).strip()
             if doc['province']: break
 
         # items จาก full_text

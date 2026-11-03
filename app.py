@@ -546,9 +546,13 @@ def parse_pdf(file_bytes):
         for line in lines[:15]:
             line_n = norm(line)  # normalize ก่อน parse
 
-            # กรณีพิเศษ: กรุงเทพฯ — ใช้ "เขต" แทน "อ." และไม่มี "จ."
+            # ข้ามบรรทัด header ของบริษัทนันยาง (address เจ้าของ ไม่ใช่ลูกค้า)
+            if 'นันยาง' in line_n or '99-105' in line_n:
+                continue
+
+            # กรณีพิเศษ: กรุงเทพฯ ของลูกค้า — ต้องมีเลข zipcode ด้วย (ป้องกัน header บริษัท)
             mk = re.search(r'เขต([ก-๙]+)', line_n)
-            if mk and ('กรุงเทพ' in line_n or 'กทม' in line_n):
+            if mk and ('กรุงเทพ' in line_n or 'กทม' in line_n) and re.search(r'\d{5}', line_n):
                 doc['amphoe']  = 'เขต' + mk.group(1)
                 doc['province'] = 'กรุงเทพมหานคร'
                 break

@@ -8,6 +8,14 @@ from openpyxl.utils import get_column_letter
 from collections import defaultdict
 from datetime import datetime
 
+# PDF export
+from pypdf import PdfReader, PdfWriter
+from reportlab.pdfgen import canvas as rl_canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import os, tempfile
+
 st.set_page_config(page_title="คำนวณโหลดสินค้า IFO", page_icon="📦", layout="wide")
 
 # ── CONSTANTS ──
@@ -227,6 +235,210 @@ def norm(s):
         s = re.sub(pat, rep, s)
 
     return s.strip()
+
+
+# ── Thai font for reportlab ──
+_FONT_REGISTERED = False
+_FONT_NAME = 'Helvetica'
+
+def _ensure_thai_font():
+    """ลงทะเบียน font ที่รองรับ Thai สำหรับ reportlab"""
+    global _FONT_REGISTERED, _FONT_NAME
+    if _FONT_REGISTERED:
+        return _FONT_NAME
+    # ลำดับ preference: TH Sarabun New → FreeSerif (รองรับ Thai) → Helvetica fallback
+    candidates = [
+        ('THSarabunNew', '/usr/share/fonts/truetype/thai/THSarabunNew.ttf'),
+        ('THSarabunNew', '/usr/share/fonts/truetype/thaifonts/THSarabunNew.ttf'),
+        ('THSarabunNew', '/usr/local/share/fonts/THSarabunNew.ttf'),
+        ('THSarabunNew', 'THSarabunNew.ttf'),           # ถ้าอยู่ใน repo root
+        ('FreeSerif',   '/usr/share/fonts/truetype/freefont/FreeSerif.ttf'),
+        ('FreeSans',    '/usr/share/fonts/truetype/freefont/FreeSans.ttf'),
+    ]
+    for name, path in candidates:
+        if os.path.exists(path):
+            try:
+                pdfmetrics.registerFont(TTFont(name, path))
+                _FONT_NAME = name
+                _FONT_REGISTERED = True
+                return _FONT_NAME
+            except Exception:
+                continue
+    # ถ้าไม่เจอ font ไหนเลย ใช้ Helvetica (ตัว ASCII)
+    _FONT_REGISTERED = True
+    return 'Helvetica'
+
+
+def _make_summary_overlay(page_width, page_height, ifo_id, customer, amphoe, province,
+                           canvas_qty, canvas_gift,
+                           foam200_qty, foam200_gift,
+                           foam212_qty, foam212_gift,
+                           foam213_qty, foam213_gift):
+    """
+    สร้าง overlay PDF (BytesIO) ที่มีกล่องสรุปสีน้ำเงินด้านล่างหน้า
+    คืน BytesIO ของ 1-page PDF สำหรับ merge กับหน้าต้นฉบับ
+    """
+    buf = io.BytesIO()
+    font_name = _ensure_thai_font()
+
+    # ── คำนวณเนื้อหากล่อง ──
+    lines = []  # list of (text, is_gift)
+    # ผ้าใบ
+    for sub, qty in sorted(canvas_qty.items()):
+        if qty:
+            cc = calc_canvas(qty)
+            lines.append((f'ผ้าใบ {sub}: {qty} คู่ → {cc["boxes"]} กล่อง' +
+                          (f' เศษ {cc["rem"]} คู่' if cc['rem'] else ''), False))
+    for sub, qty in sorted(canvas_gift.items()):
+        if qty:
+            gc = calc_canvas(qty)
+            lines.append((f'ผ้าใบ {sub} (ของแถม): {qty} คู่ → {gc["boxes"]} กล่อง' +
+                          (f' เศษ {gc["rem"]} คู่' if gc['rem'] else ''), True))
+    # ฟองน้ำ 200
+    if foam200_qty:
+        cf = calc_foam200(foam200_qty)
+        txt = f'ฟองน้ำ 200: {foam200_qty} คู่ → {cf["sacks"]} กระสอบ'
+        if cf['rem_doz']: txt += f' เศษ {cf["rem_doz"]} โหล'
+        lines.append((txt, False))
+    if foam200_gift:
+        gf = calc_foam200(foam200_gift)
+        txt = f'ฟองน้ำ 200 (ของแถม): {foam200_gift} คู่ → {gf["sacks"]} กระสอบ'
+        if gf['rem_doz']: txt += f' เศษ {gf["rem_doz"]} โหล'
+        lines.append((txt, True))
+    # ฟองน้ำ 212
+    if foam212_qty:
+        c2 = calc_foam212(foam212_qty)
+        lines.append((f'ฟองน้ำ 212: {foam212_qty} คู่ → {c2["boxes"]} กล่อง' +
+                      (f' เศษ {c2["rem_doz"]} โหล' if c2['rem_doz'] else ''), False))
+    if foam212_gift:
+        g2 = calc_foam212(foam212_gift)
+        lines.append((f'ฟองน้ำ 212 (ของแถม): {foam212_gift} คู่ → {g2["boxes"]} กล่อง', True))
+    # ฟองน้ำ 213
+    if foam213_qty:
+        c3 = calc_foam212(foam213_qty)
+        lines.append((f'ฟองน้ำ 213: {foam213_qty} คู่ → {c3["boxes"]} กล่อง' +
+                      (f' เศษ {c3["rem_doz"]} โหล' if c3['rem_doz'] else ''), False))
+    if foam213_gift:
+        g3 = calc_foam212(foam213_gift)
+        lines.append((f'ฟองน้ำ 213 (ของแถม): {foam213_gift} คู่ → {g3["boxes"]} กล่อง', True))
+
+    # ── วัดความสูงกล่อง ──
+    HEADER_H = 22   # px สำหรับแถวหัว
+    LINE_H   = 18   # px ต่อบรรทัด
+    PAD      = 8    # padding ด้านบน/ล่าง
+    box_h    = HEADER_H + max(len(lines), 1) * LINE_H + PAD * 2
+    MARGIN   = 14   # ระยะจากขอบหน้า
+
+    box_x = MARGIN
+    box_y = MARGIN  # จากล่าง (reportlab origin = bottom-left)
+    box_w = page_width - MARGIN * 2
+
+    c = rl_canvas.Canvas(buf, pagesize=(page_width, page_height))
+
+    # พื้นหลังกล่องหัว (น้ำเงิน)
+    c.setFillColorRGB(0.106, 0.310, 0.541)  # #1B4F8A
+    c.rect(box_x, box_y + box_h - HEADER_H, box_w, HEADER_H, fill=1, stroke=0)
+
+    # พื้นหลังกล่องเนื้อหา (น้ำเงินอ่อน)
+    c.setFillColorRGB(0.878, 0.922, 0.980)  # #E0EBFA
+    c.rect(box_x, box_y, box_w, box_h - HEADER_H, fill=1, stroke=0)
+
+    # เส้นกรอบ
+    c.setStrokeColorRGB(0.106, 0.310, 0.541)
+    c.setLineWidth(1.2)
+    c.rect(box_x, box_y, box_w, box_h, fill=0, stroke=1)
+
+    # ── Header text ──
+    c.setFillColorRGB(1, 1, 1)  # ขาว
+    c.setFont(font_name, 11)
+    loc = f'อ.{amphoe} จ.{province}' if amphoe or province else ''
+    header_parts = [p for p in [ifo_id, customer, loc] if p]
+    header_txt = '  |  '.join(header_parts)
+    c.drawString(box_x + 8, box_y + box_h - HEADER_H + 6, f'สรุปโหลด: {header_txt}')
+
+    # ── บรรทัดรายการ ──
+    c.setFont(font_name, 10)
+    for i, (line_txt, is_gift) in enumerate(lines):
+        y_pos = box_y + box_h - HEADER_H - PAD - (i + 1) * LINE_H + 4
+        if is_gift:
+            c.setFillColorRGB(0.6, 0.35, 0.0)   # น้ำตาล/ส้มสำหรับของแถม
+        else:
+            c.setFillColorRGB(0.063, 0.231, 0.545)  # #1B4F8A dark
+        c.drawString(box_x + 14, y_pos, f'• {line_txt}')
+
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+def build_pdf_combined(docs, raw_pdf_map):
+    """
+    สร้าง PDF รวมทุก IFO:
+    - แต่ละหน้าของ PDF ต้นฉบับที่ตรงกับ IFO ที่ parse ได้
+    - stamp กล่องสรุปสีน้ำเงินด้านล่าง
+    raw_pdf_map: dict { ifo_id -> bytes of original pdf }
+    """
+    writer = PdfWriter()
+
+    for doc in docs:
+        ifo_id = doc['docId']
+        file_bytes = raw_pdf_map.get(ifo_id)
+        if not file_bytes:
+            continue
+
+        # เตรียมข้อมูลสรุป
+        canvas_qty = defaultdict(int)
+        canvas_gift = defaultdict(int)
+        for x in doc['items']:
+            if x['type'] == 'canvas':
+                if x['gift']: canvas_gift[x['subtype']] += x['qty']
+                else: canvas_qty[x['subtype']] += x['qty']
+
+        reader = PdfReader(io.BytesIO(file_bytes))
+
+        # หาหน้าที่เป็นของ IFO นี้
+        ifo_pages = []
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            for pi, page in enumerate(pdf.pages):
+                words = page.extract_words(x_tolerance=3, y_tolerance=3)
+                page_text = ' '.join(w['text'] for w in words)
+                if ifo_id in page_text:
+                    ifo_pages.append(pi)
+
+        if not ifo_pages:
+            # fallback: ใส่ทุกหน้า
+            ifo_pages = list(range(len(reader.pages)))
+
+        last_page_idx = ifo_pages[-1]
+
+        for pi in ifo_pages:
+            src_page = reader.pages[pi]
+            pw = float(src_page.mediabox.width)
+            ph = float(src_page.mediabox.height)
+
+            if pi == last_page_idx:
+                # stamp กล่องสรุปเฉพาะหน้าสุดท้ายของ IFO นี้
+                overlay_buf = _make_summary_overlay(
+                    pw, ph,
+                    ifo_id,
+                    doc.get('customer', ''),
+                    doc.get('amphoe', ''),
+                    doc.get('province', ''),
+                    canvas_qty, canvas_gift,
+                    doc['_ft2'], doc.get('_ft2_gift', 0),
+                    doc['_ft3_212'], doc.get('_ft3_212_gift', 0),
+                    doc['_ft3_213'], doc.get('_ft3_213_gift', 0),
+                )
+                overlay_reader = PdfReader(overlay_buf)
+                overlay_page = overlay_reader.pages[0]
+                src_page.merge_page(overlay_page)
+
+            writer.add_page(src_page)
+
+    out = io.BytesIO()
+    writer.write(out)
+    out.seek(0)
+    return out
 
 
 def detect_type(barcode):
@@ -708,7 +920,7 @@ def build_excel(docs):
 st.markdown("""
 <div style="background:linear-gradient(135deg,#1B4F8A,#163D6E);color:white;border-radius:12px;padding:16px 24px;margin-bottom:20px">
 <h1 style="font-size:20px;font-weight:700;margin:0">📦 คำนวณโหลดสินค้า IFO</h1>
-<p style="font-size:13px;opacity:.7;margin:4px 0 0">อัปโหลด PDF → คำนวณอัตโนมัติ → ดาวน์โหลด Excel</p>
+<p style="font-size:13px;opacity:.7;margin:4px 0 0">อัปโหลด PDF → คำนวณอัตโนมัติ → ดาวน์โหลด PDF / Excel</p>
 </div>""", unsafe_allow_html=True)
 
 if 'ukey' not in st.session_state: st.session_state.ukey=0
@@ -724,12 +936,16 @@ with c2:
 
 if uploaded:
     docs=[]; errors=[]
+    raw_pdf_map={}   # ifo_id -> bytes ของไฟล์ต้นฉบับ
     with st.spinner('🔍 กำลังอ่าน PDF...'):
         for f in uploaded:
             try:
-                results=parse_pdf(f.read())
+                file_bytes = f.read()
+                results=parse_pdf(file_bytes)
                 for doc in results:
-                    agg(doc); doc['_file']=f.name; docs.append(doc)
+                    agg(doc); doc['_file']=f.name
+                    raw_pdf_map[doc['docId']] = file_bytes
+                    docs.append(doc)
             except Exception as e:
                 errors.append(f"{f.name}: {e}")
 
@@ -797,10 +1013,31 @@ if uploaded:
                         parts.append(f"ฟองน้ำ213 {doc['_ft3_213_gift']} คู่ / {g3['boxes']} กล่อง")
                     st.warning(f"🎁 **ของแถม:** {' | '.join(parts)}")
 
-        excel=build_excel(docs)
-        fname=f"IFO_โหลดสินค้า_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-        st.download_button("📥 ดาวน์โหลด Excel",data=excel,file_name=fname,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,type="primary")
+        st.divider()
+        ts = datetime.now().strftime('%Y%m%d_%H%M')
+
+        # ── ปุ่ม PDF + Excel ──
+        dcols = st.columns([2, 1])
+        with dcols[0]:
+            with st.spinner('⏳ กำลังสร้าง PDF...'):
+                try:
+                    pdf_data = build_pdf_combined(docs, raw_pdf_map)
+                    st.download_button(
+                        "📄 ดาวน์โหลด PDF (รวมทุกใบ + สรุปโหลด)",
+                        data=pdf_data,
+                        file_name=f"IFO_สรุปโหลด_{ts}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        type="primary"
+                    )
+                except Exception as e:
+                    st.error(f"❌ สร้าง PDF ไม่ได้: {e}")
+
+        with dcols[1]:
+            excel=build_excel(docs)
+            fname=f"IFO_โหลดสินค้า_{ts}.xlsx"
+            st.download_button("📊 Excel",data=excel,file_name=fname,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True)
     else:
         if not errors: st.warning("⚠️ ไม่พบข้อมูล IFO ในไฟล์ที่อัปโหลด")

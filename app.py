@@ -246,12 +246,14 @@ def _ensure_thai_font():
     global _FONT_REGISTERED, _FONT_NAME
     if _FONT_REGISTERED:
         return _FONT_NAME
-    # ลำดับ preference: TH Sarabun New → FreeSerif (รองรับ Thai) → Helvetica fallback
+    # ลำดับ preference: font ใน repo ก่อน → system path → Helvetica fallback
+    _here = os.path.dirname(os.path.abspath(__file__))
     candidates = [
+        ('FreeSerif',   os.path.join(_here, 'FreeSerif.ttf')),   # ฝังใน repo (หลัก)
+        ('THSarabunNew', os.path.join(_here, 'THSarabunNew.ttf')),
         ('THSarabunNew', '/usr/share/fonts/truetype/thai/THSarabunNew.ttf'),
         ('THSarabunNew', '/usr/share/fonts/truetype/thaifonts/THSarabunNew.ttf'),
         ('THSarabunNew', '/usr/local/share/fonts/THSarabunNew.ttf'),
-        ('THSarabunNew', 'THSarabunNew.ttf'),           # ถ้าอยู่ใน repo root
         ('FreeSerif',   '/usr/share/fonts/truetype/freefont/FreeSerif.ttf'),
         ('FreeSans',    '/usr/share/fonts/truetype/freefont/FreeSans.ttf'),
     ]

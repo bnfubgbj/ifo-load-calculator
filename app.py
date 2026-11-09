@@ -881,8 +881,9 @@ def build_pdf_with_summary(file_bytes, doc):
         page_indices = doc.get('_pages', list(range(len(reader.pages))))
         ifo_pages = [reader.pages[i] for i in page_indices if i < len(reader.pages)]
         for i, page in enumerate(ifo_pages):
-            if i == len(ifo_pages)-1: page.merge_page(overlay_page)
             writer.add_page(page)
+            if i == len(ifo_pages)-1:
+                writer.pages[-1].merge_page(overlay_page)
         out_buf = io.BytesIO(); writer.write(out_buf); out_buf.seek(0)
         return out_buf
 
@@ -1017,10 +1018,10 @@ def build_pdf_with_summary(file_bytes, doc):
     # เพิ่มเฉพาะหน้าของ IFO นี้
     ifo_pages = [reader.pages[i] for i in page_indices if i < len(reader.pages)]
     for i, page in enumerate(ifo_pages):
+        writer.add_page(page)
         if i == len(ifo_pages) - 1:
             # หน้าสุดท้าย: merge กับ overlay สรุปโหลด
-            page.merge_page(overlay_page)
-        writer.add_page(page)
+            writer.pages[-1].merge_page(overlay_page)
 
     out_buf = io.BytesIO()
     writer.write(out_buf)

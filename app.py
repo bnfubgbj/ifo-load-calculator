@@ -895,12 +895,15 @@ def build_pdf_with_summary(file_bytes, doc):
         c.save(); overlay_buf.seek(0)
         overlay_page = PdfReader(overlay_buf).pages[0]
         page_indices = doc.get('_pages', list(range(len(reader.pages))))
-        ifo_pages = [reader.pages[i] for i in page_indices if i < len(reader.pages)]
-        for i, page in enumerate(ifo_pages):
-            writer.add_page(page)
-            if i == len(ifo_pages)-1:
-                writer.pages[-1].merge_page(overlay_page)
-        out_buf = io.BytesIO(); writer.write(out_buf); out_buf.seek(0)
+        tfv_writer = PdfWriter()
+        for i in page_indices:
+            if i < len(reader.pages): tfv_writer.add_page(reader.pages[i])
+        last_idx = len(tfv_writer.pages) - 1
+        try:
+            tfv_writer.merge_page(last_idx, overlay_page)
+        except (AttributeError, TypeError):
+            tfv_writer.pages[last_idx].merge_page(overlay_page)
+        out_buf = io.BytesIO(); tfv_writer.write(out_buf); out_buf.seek(0)
         return out_buf
 
     # ── IFO: logic เดิม ──
@@ -968,9 +971,6 @@ def build_pdf_with_summary(file_bytes, doc):
     if not lines_data:
         # ไม่มีสรุป ส่งคืน PDF เฉพาะหน้าของ IFO นี้
         buf = io.BytesIO()
-        for i in page_indices:
-            if i < len(reader.pages):
-                writer.add_page(reader.pages[i])
         writer.write(buf)
         buf.seek(0)
         return buf
@@ -1027,17 +1027,18 @@ def build_pdf_with_summary(file_bytes, doc):
     c.save()
     overlay_buf.seek(0)
 
-    # Merge ทุกหน้า
+    # Merge overlay เข้ากับหน้าสุดท้าย
+    # pypdf 7: ใช้ writer.merge_page(page_number, page2) แทน page.merge_page()
     overlay_reader = PdfReader(overlay_buf)
     overlay_page = overlay_reader.pages[0]
 
-    # เพิ่มเฉพาะหน้าของ IFO นี้
-    ifo_pages = [reader.pages[i] for i in page_indices if i < len(reader.pages)]
-    for i, page in enumerate(ifo_pages):
-        writer.add_page(page)
-        if i == len(ifo_pages) - 1:
-            # หน้าสุดท้าย: merge กับ overlay สรุปโหลด
-            writer.pages[-1].merge_page(overlay_page)
+    last_idx = len(writer.pages) - 1
+    try:
+        # pypdf 7+
+        writer.merge_page(last_idx, overlay_page)
+    except (AttributeError, TypeError):
+        # pypdf 5-6 fallback
+        writer.pages[last_idx].merge_page(overlay_page)
 
     out_buf = io.BytesIO()
     writer.write(out_buf)

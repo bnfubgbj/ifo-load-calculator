@@ -796,16 +796,32 @@ def agg(doc):
     doc['_nature']       = sum(x['qty'] for x in doc['items'] if x['type'] == 'nature' and not x['gift'])
     doc['_nature_gift']  = sum(x['qty'] for x in doc['items'] if x['type'] == 'nature' and x['gift'])
 
+def _merge_overlay(writer_page, overlay_page):
+    """merge overlay เข้ากับหน้าที่ add_page แล้ว — compatible pypdf 5-7"""
+    try:
+        writer_page.merge_page(overlay_page)
+    except Exception:
+        # pypdf 7: ใช้ merge_transformed_page
+        from pypdf._page import Transformation
+        writer_page.merge_transformed_page(overlay_page, Transformation())
+
 def build_pdf_with_summary(file_bytes, doc):
     """เพิ่มสรุปโหลดสินค้าด้านล่างของ PDF ต้นฉบับ"""
     _ensure_thai_font()
 
     # อ่าน PDF ต้นฉบับ — เฉพาะหน้าของ IFO นี้
     reader = PdfReader(io.BytesIO(file_bytes))
-    writer = PdfWriter()
+    # clone_from ทำให้ทุก page ถูก attach กับ writer ทันที (pypdf 7 compatible)
+    writer = PdfWriter(clone_from=reader)
+    # ลบหน้าที่ไม่ต้องการออก แล้วเหลือเฉพาะหน้า IFO นี้
     page_indices = doc.get('_pages', list(range(len(reader.pages))))
     if not page_indices:
         page_indices = list(range(len(reader.pages)))
+    # สร้าง writer ใหม่ที่มีเฉพาะหน้าที่ต้องการ
+    writer = PdfWriter()
+    for i in page_indices:
+        if i < len(reader.pages):
+            writer.add_page(reader.pages[i])
 
     # สร้าง summary text
     lines_data = []
